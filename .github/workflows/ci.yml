@@ -20,7 +20,8 @@ permissions:
 # Cancel superseded runs for the same PR (or branch). Runs on `main` are left
 # alone -- we want every push to `main` to complete.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Keyed on source and target branch: a new push cancels only the stale run of the same branch pair.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}-${{ github.base_ref || 'push' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

@@ -78,7 +78,8 @@ async function initEvents({ server, url, handle }) {
 
   const publish = async (type, payload) => {
     if (!channel) throw new Error("broker unavailable");
-    channel.sendToQueue(COMMANDS, Buffer.from(JSON.stringify({ type, payload })));
+    // Persistent so accepted draws survive a broker restart before the worker writes them.
+    channel.sendToQueue(COMMANDS, Buffer.from(JSON.stringify({ type, payload })), { persistent: true });
   };
   // Open WebSockets would otherwise keep server.close() waiting forever.
   const close = async () => {

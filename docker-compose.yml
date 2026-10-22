@@ -43,6 +43,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:4-management
+    # RabbitMQ names its node, and its data directory, after the hostname; a fixed one lets the
+    # volume survive container recreation instead of starting a fresh node each time.
+    hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}

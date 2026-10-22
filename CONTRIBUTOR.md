@@ -55,6 +55,36 @@ Then add the same key on GitHub (Settings → SSH and GPG keys) as a **Signing K
 
 Every PR runs `ci.yml` (lint, tests, Docker and compose lint, full-stack boot test, GitNexus) and `ci-sast.yml` (SonarQube, CodeQL). If GitNexus reports a stale `docs/gitnexus/api-links.md`, run `just gitnexus-docs-generate` and commit the result.
 
+### SAST quality gates
+
+`ci-sast-required` gates the merge. Both scans write their verdict to the run summary (open the run, then the job). On `main` the reports are also committed under `.sast/report/`.
+
+**SonarQube Cloud** judges only the **new code** of the PR. Every condition must pass:
+
+| Condition (new code) | Required |
+|---|---|
+| Coverage | ≥ 80% |
+| Reliability rating (bugs) | A |
+| Security rating (vulnerabilities) | A |
+| Maintainability rating (code smells) | A |
+| Duplicated lines | ≤ 3% |
+| Security hotspots reviewed | 100% |
+
+**CodeQL** runs the `code-scanning` suite on `backend/src` and `frontend/src`. Any **error**-severity alert fails the job; warnings are reported but do not block.
+
+### New-code coverage policy
+
+New and changed lines must be at least **80% covered**, counted across backend and frontend together. Old code is not held to the bar, but don't lower it.
+
+- Add tests with the change, not afterwards: `backend/spec/*.spec.js` for the backend, `*.test.ts(x)` next to the frontend file.
+- Check before pushing:
+  ```bash
+  cd backend  && npm run test:coverage
+  cd frontend && npm run test:coverage
+  ```
+- Prefer testing behaviour through the public surface (HTTP routes with `supertest`, user interactions with Testing Library) over private helpers.
+- Test files are excluded from analysis. Only `frontend/src/setupTests.ts` is excluded from coverage; ask before adding exclusions, they hide untested code from the gate.
+
 ## Releases
 
 Maintainers only: merging the release-please PR on `main` tags a release and publishes the images to GHCR. Don't bump versions by hand.

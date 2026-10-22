@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pixelwar-{{ .Values.env }}
+  namespace: argocd
+  annotations:
+    # Needs the Traefik and Prometheus Operator CRDs from earlier waves.
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: pixelwar-{{ .Values.env }}
+  source:
+    repoURL: {{ .Values.repoURL }}
+    targetRevision: {{ .Values.targetRevision }}
+    path: charts/pixelwar
+    helm:
+      releaseName: pixelwar
+      valueFiles:
+        {{- range .Values.app.valueFiles }}
+        # valueFiles are relative to the chart path.
+        - ../../{{ . }}
+        {{- end }}
+  destination:
+    server: {{ .Values.destinationServer }}
+    namespace: {{ .Values.app.namespace }}
+  syncPolicy:
+    {{- toYaml .Values.syncPolicy | nindent 4 }}
+    syncOptions:
+      - CreateNamespace=true

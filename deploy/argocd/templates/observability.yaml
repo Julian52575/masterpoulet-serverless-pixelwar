@@ -1,0 +1,36 @@
+{{- range $name, $c := .Values.observability.charts }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}-{{ $.Values.env }}
+  namespace: argocd
+  annotations:
+    # CRD providers (kube-prometheus-stack) first: later charts create ServiceMonitors.
+    argocd.argoproj.io/sync-wave: {{ $c.wave | quote }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: pixelwar-{{ $.Values.env }}
+  # Chart from the upstream repo, values from this repo: a values change is a reviewed commit.
+  sources:
+    - repoURL: {{ $c.repoURL }}
+      chart: {{ $name }}
+      targetRevision: {{ $c.version | quote }}
+      helm:
+        releaseName: {{ $name }}
+        valueFiles:
+          - $values/deploy/k8s/observability/{{ $name }}.yaml
+    - repoURL: {{ $.Values.repoURL }}
+      targetRevision: {{ $.Values.targetRevision }}
+      ref: values
+  destination:
+    server: {{ $.Values.destinationServer }}
+    namespace: {{ $c.namespace | default $.Values.observability.namespace }}
+  syncPolicy:
+    {{- toYaml $.Values.syncPolicy | nindent 4 }}
+    syncOptions:
+      - CreateNamespace=true
+      # kube-prometheus-stack CRDs exceed the client-side apply annotation size limit.
+      - ServerSideApply=true
+{{- end }}

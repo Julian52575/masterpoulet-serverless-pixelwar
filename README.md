@@ -9,6 +9,7 @@ See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 
 - [docs/observability.md](docs/observability.md): metrics, logs, traces and alerts, opt-in with `just up -d --profile monitoring` (Grafana on http://localhost:3001)
 - [docs/kubernetes.md](docs/kubernetes.md): Helm chart and local Kubernetes cluster (`just k8s-up`)
+- [docs/gitops.md](docs/gitops.md): Argo CD deployment, promotion and recovery (`just argocd-bootstrap`)
 
 ## Quick start
 
@@ -95,7 +96,7 @@ Change the example passwords before exposing the stack anywhere. To add a variab
 
 Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
-- `ci.yml`: dev shell / `nix flake check`, backend and frontend lint + tests, Dockerfile / compose / workflow linting, monitoring config lint (`just monitoring-lint`), Kubernetes manifest validation (`just k8s-validate`), `npm audit`, a full stack boot test through Traefik, and GitNexus analysis. The `ci-required` job gates merges.
+- `ci.yml`: dev shell / `nix flake check`, backend and frontend lint + tests, Dockerfile / compose / workflow linting, monitoring config lint (`just monitoring-lint`), Kubernetes manifest validation (`just k8s-validate`), Argo CD application validation (`just argocd-validate`), `npm audit`, a full stack boot test through Traefik, and GitNexus analysis. The `ci-required` job gates merges.
 - `ci-sast.yml`: SonarQube Cloud and CodeQL scans (needs the `SONARQUBE_TOKEN` and `SAST_REPORT_TOKEN` secrets).
 - `check-conventional-commit-pr-title.yml`: PR titles must follow Conventional Commits.
 

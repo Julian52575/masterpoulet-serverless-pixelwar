@@ -234,6 +234,41 @@ k8s-forward:
 k8s-app-uninstall:
     helm uninstall pixelwar -n pixelwar
 
+#### GitOps (docs/gitops.md)
+
+# Offline checks: lint and render the GitOps chart, then validate the Applications against the Argo CD CRD schemas
+argocd-validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    helm lint deploy/argocd -f deploy/argocd/envs/local.yaml
+    validate() { kubeconform -strict -summary -schema-location default \
+        -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{"{{"}}.Group{{"}}"}}/{{"{{"}}.ResourceKind{{"}}"}}_{{"{{"}}.ResourceAPIVersion{{"}}"}}.json' "$@"; }
+    validate deploy/argocd/root-local.yaml
+    helm template root deploy/argocd -f deploy/argocd/envs/local.yaml | validate
+    # Every values file the Applications reference must exist in the repo.
+    helm template root deploy/argocd -f deploy/argocd/envs/local.yaml \
+      | grep -oE '(\$values/|\.\./\.\./)deploy/[^ ]+\.yaml' | sed -E 's#^(\$values/|\.\./\.\./)##' | sort -u \
+      | while read -r f; do test -f "$f" || { echo "missing values file: $f"; exit 1; }; echo "$f: present"; done
+
+# Install Argo CD into the cluster (pinned chart version)
+argocd-install:
+    helm repo add argo https://argoproj.github.io/argo-helm >/dev/null
+    helm upgrade --install argocd argo/argo-cd --version 10.10.5 -n argocd --create-namespace -f deploy/argocd/argocd-values.yaml --wait
+
+# Hand the environment to Argo CD. A branch other than main is for testing a change before merge.
+argocd-bootstrap revision="main":
+    kubectl apply -f deploy/argocd/root-local.yaml
+    kubectl -n argocd patch application root-local --type merge -p '{"spec":{"source":{"targetRevision":"{{revision}}","helm":{"valueFiles":["envs/local.yaml"],"parameters":[{"name":"targetRevision","value":"{{revision}}"}]}}}}'
+
+# List Argo CD applications with their sync and health status
+argocd-status:
+    kubectl -n argocd get applications -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision
+
+# Forward the Argo CD UI to http://localhost:8443 and print the initial admin password
+argocd-ui:
+    @kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo " <- admin password"
+    kubectl -n argocd port-forward svc/argocd-server 8443:80
+
 #### GitNexus
 
 # Re-index with GitNexus and regenerate docs/gitnexus/api-links.md (CI fails when it is stale)

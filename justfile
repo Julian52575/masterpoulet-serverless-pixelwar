@@ -18,19 +18,30 @@ default:
 
 # podman if present, else docker -- every recipe goes through this
 
-# Start the stack. Pass `-d` to detach (recommended -- see README).
+# Start the stack. Pass `-d` to detach (recommended -- see README). Monitoring: `just up -d --profile monitoring`
 up *args:
-    {{compose}} up {{args}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # --profile is a global compose option and must precede `up`.
+    global=(); rest=()
+    while (($#)); do
+        case "$1" in
+            --profile) global+=("$1" "$2"); shift 2 ;;
+            --profile=*) global+=("$1"); shift ;;
+            *) rest+=("$1"); shift ;;
+        esac
+    done
+    {{compose}} "${global[@]}" up "${rest[@]}"
 
 # Stop the stack, keeping volumes
 down *args:
-    {{compose}} down {{args}}
+    {{compose}} --profile monitoring down {{args}}
 
 # Stop the stack and delete its built images (`just rm; just up` = clean rebuild).
 rm *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{compose}} down --remove-orphans {{args}}
+    {{compose}} --profile monitoring down --remove-orphans {{args}}
     project="$(basename "$PWD" | tr '[:upper:] ' '[:lower:]-')"
     {{tool}} images -q \
         --filter "reference=${project}*" --filter "reference=localhost/${project}*" \

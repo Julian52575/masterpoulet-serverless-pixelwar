@@ -106,6 +106,17 @@ consume -> db (upsert) -> publish event`.
 **Gaps (not instrumented):** the browser frontend (no client-side tracing), the WebSocket
 delivery to clients, and RabbitMQ/Postgres internals (they appear only as client spans).
 
+## Start and stop (Compose)
+
+The observability services are in the `monitoring` profile, so the everyday `just up -d`
+stays small. Enable them explicitly:
+
+```bash
+just up -d --profile monitoring   # app + observability
+just up -d                        # app only; telemetry is emitted but not collected
+just down                         # stops both
+```
+
 ## Access
 
 | | Compose | Kubernetes (`just k8s-forward`) |

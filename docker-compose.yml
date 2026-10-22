@@ -7,7 +7,7 @@
 #   http://localhost:8080/           -> Traefik dashboard (insecure, local only)
 #   http://localhost:15672/          -> RabbitMQ management UI
 #
-# Observability (see docs/observability.md):
+# Observability, only with `just up -d --profile monitoring` (see docs/observability.md):
 #   http://localhost:3001/           -> Grafana (dashboards, logs, traces)
 #   http://localhost:9090/           -> Prometheus
 #   http://localhost:9093/           -> Alertmanager
@@ -144,8 +144,11 @@ services:
   # ---- Observability -------------------------------------------------------
   # Same tools and configuration as the Kubernetes deployment (charts/pixelwar/files holds
   # the shared alert rules and dashboard). Ports bind to localhost: none of these have auth.
+  # Opt-in `monitoring` profile keeps the everyday dev stack small; without it the backend
+  # and Traefik still emit telemetry, which is simply not collected.
 
   prometheus:
+    profiles: [monitoring]
     image: quay.io/prometheus/prometheus:v3.15.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -163,6 +166,7 @@ services:
     restart: unless-stopped
 
   alertmanager:
+    profiles: [monitoring]
     image: quay.io/prometheus/alertmanager:v0.34.1
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
@@ -176,6 +180,7 @@ services:
 
   # Stand-in notification channel: prints each Alertmanager webhook call to its log.
   alert-sink:
+    profiles: [monitoring]
     image: docker.io/mendhak/http-https-echo:42
     environment:
       HTTP_PORT: 8080
@@ -183,6 +188,7 @@ services:
     restart: unless-stopped
 
   node-exporter:
+    profiles: [monitoring]
     image: quay.io/prometheus/node-exporter:v1.12.1
     command:
       - --path.rootfs=/host
@@ -191,6 +197,7 @@ services:
     restart: unless-stopped
 
   loki:
+    profiles: [monitoring]
     image: docker.io/grafana/loki:3.6.16
     command: -config.file=/etc/loki/loki.yaml
     volumes:
@@ -199,6 +206,7 @@ services:
     restart: unless-stopped
 
   tempo:
+    profiles: [monitoring]
     image: docker.io/grafana/tempo:2.9.0
     command: -config.file=/etc/tempo/tempo.yaml
     volumes:
@@ -207,6 +215,7 @@ services:
     restart: unless-stopped
 
   alloy:
+    profiles: [monitoring]
     image: docker.io/grafana/alloy:v1.21.1
     command:
       - run
@@ -223,6 +232,7 @@ services:
     restart: unless-stopped
 
   grafana:
+    profiles: [monitoring]
     image: docker.io/grafana/grafana:13.2.4
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}

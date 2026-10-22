@@ -7,7 +7,7 @@ On linux, the easiest way to run and test the project is through nix.
 
 See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 
-- [docs/observability.md](docs/observability.md): metrics, logs, traces and alerts (Grafana on http://localhost:3001)
+- [docs/observability.md](docs/observability.md): metrics, logs, traces and alerts, opt-in with `just up -d --profile monitoring` (Grafana on http://localhost:3001)
 - [docs/kubernetes.md](docs/kubernetes.md): Helm chart and local Kubernetes cluster (`just k8s-up`)
 
 ## Quick start
@@ -40,7 +40,7 @@ Run `just` to list all recipes. It uses `podman` if available, otherwise `docker
 
 | Recipe | What it does |
 |---|---|
-| `just up -d` / `just down` | Start / stop the stack |
+| `just up -d` / `just down` | Start / stop the stack (`just up -d --profile monitoring` adds the observability services; `down` stops both) |
 | `just rm` | Stop and remove built images and containers (clean rebuild: `just reset`) |
 | `just reset` | Rebuild without cache and recreate containers |
 | `just nuke` | Delete containers, images **and volumes** (asks first) |
@@ -70,8 +70,8 @@ browser ──► proxy (Traefik :8000) ──┬─ /           ──► front
 | `backend` | Express API (proxy) + worker: tiles, pixels, brush, PNG export, snapshots, `/admin/*`, WebSocket on `/ws` | Routed on `/api` (prefix stripped by Traefik) and `/ws`. The API validates, checks pause and quota (shared state in `db`), and queues commands on `rabbitmq`; the worker writes `db` and publishes events to a fanout exchange that every instance relays to its WebSocket clients |
 | `db` | Postgres 16 | Used by `backend` through Prisma; migrations run on container start |
 | `rabbitmq` | Message broker; management UI on `:15672` | Used by `backend` |
-| `prometheus`, `alertmanager`, `alert-sink`, `node-exporter` | Metrics, alert rules and notifications | Scrape `backend:9464`, `proxy:8082`, `rabbitmq:15692`; see [observability](docs/observability.md) |
-| `loki`, `tempo`, `alloy`, `grafana` | Logs, traces, telemetry agent, UI (`127.0.0.1:3001`) | Alloy tails container logs via the socket and receives OTLP traces from `proxy` and `backend` |
+| `prometheus`, `alertmanager`, `alert-sink`, `node-exporter` (profile `monitoring`) | Metrics, alert rules and notifications | Scrape `backend:9464`, `proxy:8082`, `rabbitmq:15692`; see [observability](docs/observability.md) |
+| `loki`, `tempo`, `alloy`, `grafana` (profile `monitoring`) | Logs, traces, telemetry agent, UI (`127.0.0.1:3001`) | Alloy tails container logs via the socket and receives OTLP traces from `proxy` and `backend` |
 
 ## Configuration (`.env`)
 

@@ -21,5 +21,8 @@ accessLog:
   enabled: true
   format: json
 
+# No LoadBalancer on kind: access goes through port-forward, and a pending
+# LoadBalancer would keep Argo CD reporting the app as Progressing.
 service:
-  type: ClusterIP
+  spec:
+    type: ClusterIP

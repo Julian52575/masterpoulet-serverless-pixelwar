@@ -7,10 +7,46 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Item {
-  id        Int      @id @default(autoincrement())
-  title     String
+model Pixel {
+  x         Int
+  y         Int
+  color     String
+  author    String
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@id([x, y])
+  @@map("pixels")
+}
+
+// Shared flags such as `paused`, so every instance agrees.
+model Setting {
+  key   String @id
+  value String
+
+  @@map("settings")
+}
+
+model RateLimit {
+  userId String @id @map("user_id")
+  limit  Int
+
+  @@map("rate_limits")
+}
+
+// One fixed one-minute window per user, updated atomically in SQL.
+model RateWindow {
+  userId String @id @map("user_id")
+  minute Int
+  count  Int
+
+  @@map("rate_windows")
+}
+
+// Stand-in for the object storage bucket in local dev.
+model Snapshot {
+  name      String   @id
+  png       Bytes
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@map("items")
+  @@map("snapshots")
 }

@@ -1,7 +1,9 @@
 const amqp = require("amqplib");
 const { WebSocketServer, WebSocket } = require("ws");
 
-const QUEUE = "item.created";
+// Renamed from "pixelwar.commands": a queue's arguments cannot change once declared.
+const COMMANDS = "pixelwar.commands.fifo";
+const EVENTS = "pixelwar.events";
 
 function broadcast(wss, message) {
   for (const client of wss.clients) {
@@ -21,22 +23,72 @@ async function connectWithRetry(url, attempts = 10) {
   }
 }
 
-// Items are published to RabbitMQ and consumed here to fan out over /ws.
-async function initEvents({ server, url }) {
+// API -> command queue -> worker (`handle`) -> events exchange -> every instance's /ws clients.
+// Commands are shared between instances; events are fanned out so every client sees them.
+async function initEvents({ server, url, handle }) {
   const wss = new WebSocketServer({ server, path: "/ws" });
-  const conn = await connectWithRetry(url);
-  const channel = await conn.createChannel();
-  await channel.assertQueue(QUEUE);
-  await channel.consume(QUEUE, (msg) => {
-    if (!msg) return;
-    broadcast(wss, msg.content.toString());
-    channel.ack(msg);
-  });
+  let conn;
+  let channel;
+  let closing = false;
+
+  // A broker error must not kill the process: log it and reconnect.
+  const open = async () => {
+    conn = await connectWithRetry(url);
+    conn.on("error", (err) => console.error("backend: amqp connection error:", err.message));
+    conn.on("close", () => {
+      if (closing) return;
+      channel = undefined;
+      setTimeout(() => open().catch(fatal), 1000);
+    });
+    const ch = await conn.createChannel();
+    ch.on("error", (err) => console.error("backend: amqp channel error:", err.message));
+    // Channels close on protocol errors; dropping the connection triggers a clean reconnect.
+    ch.on("close", () => !closing && conn.close().catch(() => {}));
+
+    await ch.assertExchange(EVENTS, "fanout", { durable: false });
+    const { queue } = await ch.assertQueue("", { exclusive: true });
+    await ch.bindQueue(queue, EVENTS, "");
+    await ch.consume(queue, (msg) => msg && broadcast(wss, msg.content.toString()), { noAck: true });
+
+    // First in, first served: one consumer across all instances, one unacked command at a time,
+    // and the event is published before the ack, so events leave in command order.
+    await ch.assertQueue(COMMANDS, { arguments: { "x-single-active-consumer": true } });
+    await ch.prefetch(1);
+    await ch.consume(COMMANDS, async (msg) => {
+      if (!msg) return;
+      try {
+        const { type, payload } = JSON.parse(msg.content.toString());
+        const event = await handle(type, payload);
+        if (event) ch.publish(EVENTS, "", Buffer.from(JSON.stringify(event)));
+        ch.ack(msg);
+      } catch (err) {
+        console.error("backend: worker failed", err);
+        ch.nack(msg, false, false);
+      }
+    });
+    channel = ch;
+  };
+
+  const fatal = (err) => {
+    console.error("backend: lost the broker", err);
+    process.exit(1);
+  };
+
+  await open();
 
   const publish = async (type, payload) => {
-    channel.sendToQueue(QUEUE, Buffer.from(JSON.stringify({ type, payload })));
+    if (!channel) throw new Error("broker unavailable");
+    // Persistent so accepted draws survive a broker restart before the worker writes them.
+    channel.sendToQueue(COMMANDS, Buffer.from(JSON.stringify({ type, payload })), { persistent: true });
   };
-  return { publish, close: () => conn.close() };
+  // Open WebSockets would otherwise keep server.close() waiting forever.
+  const close = async () => {
+    closing = true;
+    for (const client of wss.clients) client.terminate();
+    wss.close();
+    await conn.close();
+  };
+  return { publish, close };
 }
 
 module.exports = { initEvents };

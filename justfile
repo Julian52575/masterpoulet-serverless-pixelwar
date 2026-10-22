@@ -236,6 +236,20 @@ k8s-app-uninstall:
 
 #### GitOps (docs/gitops.md)
 
+# Offline checks: lint and render the GitOps chart, then validate the Applications against the Argo CD CRD schemas
+argocd-validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    helm lint deploy/argocd -f deploy/argocd/envs/local.yaml
+    validate() { kubeconform -strict -summary -schema-location default \
+        -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{"{{"}}.Group{{"}}"}}/{{"{{"}}.ResourceKind{{"}}"}}_{{"{{"}}.ResourceAPIVersion{{"}}"}}.json' "$@"; }
+    validate deploy/argocd/root-local.yaml
+    helm template root deploy/argocd -f deploy/argocd/envs/local.yaml | validate
+    # Every values file the Applications reference must exist in the repo.
+    helm template root deploy/argocd -f deploy/argocd/envs/local.yaml \
+      | grep -oE '(\$values/|\.\./\.\./)deploy/[^ ]+\.yaml' | sed -E 's#^(\$values/|\.\./\.\./)##' | sort -u \
+      | while read -r f; do test -f "$f" || { echo "missing values file: $f"; exit 1; }; echo "$f: present"; done
+
 # Install Argo CD into the cluster (pinned chart version)
 argocd-install:
     helm repo add argo https://argoproj.github.io/argo-helm >/dev/null

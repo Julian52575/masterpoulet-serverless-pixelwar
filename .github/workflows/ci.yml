@@ -227,6 +227,22 @@ jobs:
       - name: Lint and validate the Kubernetes manifests
         run: nix develop --command just k8s-validate
 
+  # Argo CD Applications: render the GitOps chart and validate it against the Argo CD CRDs.
+  argocd-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PODMAN_NO_SOCKET: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-devshell
+
+      - name: Lint and validate the Argo CD applications
+        run: nix develop --command just argocd-validate
+
   # Every workflow actionlint finds under .github/workflows -- a new one is
   # picked up without touching this workflow -- including the shellcheck pass
   # on each `run:` script (bundled in the actionlint image).
@@ -373,6 +389,7 @@ jobs:
       - compose-lint
       - monitoring-lint
       - k8s-lint
+      - argocd-lint
       - workflow-lint
     runs-on: ubuntu-latest
     timeout-minutes: 30

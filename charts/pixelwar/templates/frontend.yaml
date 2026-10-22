@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- include "pixelwar.selector" (list $ "frontend") | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pixelwar.selector" (list $ "frontend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pixelwar.selector" (list $ "frontend") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # The images declare `USER node` by name; the kubelet needs its uid to verify non-root.
+        runAsUser: 1000
+      containers:
+        - name: frontend
+          image: {{ include "pixelwar.image" (dict "image" .Values.frontend.image "root" .) }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 3000 }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          resources: {{- toYaml .Values.frontend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-frontend
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- include "pixelwar.selector" (list $ "frontend") | nindent 4 }}
+spec:
+  selector:
+    {{- include "pixelwar.selector" (list $ "frontend") | nindent 4 }}
+  ports:
+    - { name: http, port: 3000, targetPort: http }

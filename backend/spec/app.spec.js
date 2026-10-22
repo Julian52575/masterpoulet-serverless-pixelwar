@@ -50,6 +50,7 @@ describe("pixels", () => {
         count: 1,
         rect: { x0: 3, y0: 4, x1: 4, y1: 5 },
       }),
+      { correlationId: expect.any(String) },
     );
   });
 
@@ -137,7 +138,7 @@ describe("admin", () => {
     const { app, publish } = setup();
     const res = await request(app).post(`/admin/${cmd}`).set("x-user", "root");
     expect(res.status).toBe(202);
-    expect(publish).toHaveBeenCalledWith(`admin.${cmd}`, { by: "root" });
+    expect(publish).toHaveBeenCalledWith(`admin.${cmd}`, { by: "root" }, expect.anything());
   });
 
   it("validates and queues a rate limit override", async () => {
@@ -145,7 +146,7 @@ describe("admin", () => {
     const send = (body) => request(app).post("/admin/ratelimit").set("x-user", "root").send(body);
     expect((await send({ user: "bob" })).status).toBe(400);
     expect((await send({ user: "bob", limit: 5 })).status).toBe(202);
-    expect(publish).toHaveBeenCalledWith("admin.ratelimit", { user: "bob", limit: 5, by: "root" });
+    expect(publish).toHaveBeenCalledWith("admin.ratelimit", { user: "bob", limit: 5, by: "root" }, expect.anything());
   });
 });
 
@@ -167,7 +168,7 @@ describe("images", () => {
   it("queues a snapshot with a timestamp", async () => {
     const { app, publish } = setup({ now: () => 0 });
     expect((await request(app).post("/snapshots")).status).toBe(202);
-    expect(publish).toHaveBeenCalledWith("snapshot.requested", { at: "1970-01-01T00:00:00.000Z" });
+    expect(publish).toHaveBeenCalledWith("snapshot.requested", { at: "1970-01-01T00:00:00.000Z" }, expect.anything());
   });
 
   it("serves stored snapshots only by a valid name", async () => {
@@ -177,5 +178,22 @@ describe("images", () => {
     db.snapshot.findUnique.mockResolvedValue({ png: Buffer.from("png") });
     const res = await request(app).get("/snapshots/snapshot-x.png");
     expect(res.headers["content-disposition"]).toContain("snapshot-x.png");
+  });
+});
+
+describe("correlation id", () => {
+  it("generates one and returns it to the caller", async () => {
+    const { app, publish } = setup();
+    const res = await request(app).post("/pixels").send({ x: 1, y: 1, color: "#00ff00", author: "bob" });
+    expect(res.headers["x-correlation-id"]).toMatch(/^[\w-]+$/);
+    expect(publish.mock.calls[0][2]).toEqual({ correlationId: res.headers["x-correlation-id"] });
+  });
+
+  it("keeps a well-formed id supplied by the caller and replaces a malformed one", async () => {
+    const { app } = setup();
+    const kept = await request(app).get("/health").set("x-correlation-id", "abc-123");
+    expect(kept.headers["x-correlation-id"]).toBe("abc-123");
+    const replaced = await request(app).get("/health").set("x-correlation-id", "bad id!");
+    expect(replaced.headers["x-correlation-id"]).not.toBe("bad id!");
   });
 });

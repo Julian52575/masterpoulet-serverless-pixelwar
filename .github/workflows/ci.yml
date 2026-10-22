@@ -20,7 +20,8 @@ permissions:
 # Cancel superseded runs for the same PR (or branch). Runs on `main` are left
 # alone -- we want every push to `main` to complete.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Keyed on source and target branch: a new push cancels only the stale run of the same branch pair.
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}-${{ github.base_ref || 'push' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -191,6 +192,41 @@ jobs:
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
 
+  # Each observability tool validates its own Compose config; uses the runner's docker.
+  monitoring-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PODMAN_NO_SOCKET: "1"
+      CONTAINER_TOOL: docker
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-devshell
+
+      - name: Lint the monitoring stack configs
+        run: |
+          cp .env.example .env
+          nix develop --command just monitoring-lint
+
+  # Helm lint, then kubeconform on the app chart and every upstream chart with our values.
+  k8s-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PODMAN_NO_SOCKET: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-devshell
+
+      - name: Lint and validate the Kubernetes manifests
+        run: nix develop --command just k8s-validate
+
   # Every workflow actionlint finds under .github/workflows -- a new one is
   # picked up without touching this workflow -- including the shellcheck pass
   # on each `run:` script (bundled in the actionlint image).
@@ -335,6 +371,8 @@ jobs:
       - frontend
       - dockerfile-lint
       - compose-lint
+      - monitoring-lint
+      - k8s-lint
       - workflow-lint
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -348,6 +386,22 @@ jobs:
 
       - name: Load .env
         run: cp .env.example .env
+
+      # Docker Hub sometimes answers 502/429, and neither build nor up retries. Pull every
+      # base and service image up front with retries; the build then hits the local cache.
+      - name: Prefetch images
+        run: |
+          {
+            grep -hoiE '^FROM[[:space:]]+[^[:space:]]+' backend/*Dockerfile frontend/*Dockerfile | awk '{print $2}'
+            docker compose config --format json | jq -r '.services[] | select(.build == null) | .image'
+          } | sort -u | while read -r image; do
+            for attempt in 1 2 3 4 5; do
+              docker pull --quiet "$image" && break
+              [ "$attempt" = 5 ] && { echo "::error::could not pull $image"; exit 1; }
+              echo "::warning::pull of $image failed (attempt $attempt), retrying in $((attempt * 10))s"
+              sleep $((attempt * 10))
+            done
+          done
 
       - name: Build the images
         run: docker compose build

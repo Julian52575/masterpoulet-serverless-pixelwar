@@ -1,0 +1,77 @@
+// Alloy is the single telemetry agent: it tails container logs into Loki and receives
+// OTLP traces for Tempo, in the same role as the Kubernetes DaemonSet.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  // Compose's service label matches the Kubernetes component name, so queries are portable.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+  // Podman's compose provider sets the io.podman variant of the labels.
+  rule {
+    source_labels = ["__meta_docker_container_label_io_podman_compose_service"]
+    regex         = "(.+)"
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.containers.output
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.json.receiver]
+}
+
+// Promotes level and service_name to labels and keeps correlation_id / trace_id as
+// structured metadata: filterable without exploding label cardinality.
+loki.process "json" {
+  stage.json {
+    expressions = { level = "level", correlation_id = "correlation_id", trace_id = "trace_id" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  stage.structured_metadata {
+    values = { correlation_id = "", trace_id = "" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+otelcol.receiver.otlp "default" {
+  http {}
+  grpc {}
+  output {
+    traces = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}

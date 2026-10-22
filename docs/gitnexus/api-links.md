@@ -12,6 +12,7 @@ see. Consumers are matched by URL, so they apply to every method on the row.
 
 | route | handler | methods | consumers |
 | --- | --- | --- | --- |
+| /pixels/:x | backend/spec/metrics.spec.js | GET |  |
 | /admin/clear | backend/src/app.js | POST |  |
 | /admin/pause | backend/src/app.js | POST |  |
 | /admin/ratelimit | backend/src/app.js | POST |  |
@@ -25,3 +26,4 @@ see. Consumers are matched by URL, so they apply to every method on the row.
 | /snapshots | backend/src/app.js | POST |  |
 | /snapshots/:name | backend/src/app.js | GET |  |
 | /tiles/:tx/:ty | backend/src/app.js | GET |  |
+| /health | backend/src/telemetry.js |  |  |

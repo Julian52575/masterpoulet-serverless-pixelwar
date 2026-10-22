@@ -1,0 +1,72 @@
+# Defaults target a local cluster. Environment overrides live in deploy/k8s/pixelwar/values-*.yaml.
+
+imagePullSecrets: []
+
+# Created out of band (never in Git): see docs/kubernetes.md#secrets.
+# Keys: postgres-password, rabbitmq-password. Optional: admin-users.
+existingSecret: pixelwar-secrets
+
+backend:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/julian52575/masterpoulet-serverless-pixelwar-backend
+    tag: ""            # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  rateLimit: 20
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  # OTLP/HTTP endpoint of the telemetry agent; empty disables tracing.
+  otlpEndpoint: http://alloy.monitoring.svc:4318
+  extraEnv: []
+
+frontend:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/julian52575/masterpoulet-serverless-pixelwar-frontend
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+# In-cluster dependencies for dev; disable and set `external.*` to use managed services.
+postgres:
+  enabled: true
+  image: docker.io/library/postgres:16-alpine
+  user: app
+  database: app
+  storage: 1Gi
+  storageClassName: ""   # cluster default
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+rabbitmq:
+  enabled: true
+  image: docker.io/library/rabbitmq:4-management
+  user: app
+  storage: 1Gi
+  storageClassName: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 768Mi }
+
+external:
+  postgresHost: ""
+  rabbitmqHost: ""
+
+# Routes / -> frontend, /api -> backend (prefix stripped), /ws -> backend, as Traefik does in Compose.
+ingress:
+  enabled: true
+  host: ""               # empty matches any host
+  entryPoints: [web]
+
+monitoring:
+  # Requires the Prometheus Operator CRDs (kube-prometheus-stack).
+  serviceMonitors: true
+  prometheusRules: true
+  # ConfigMap picked up by the Grafana dashboard sidecar.
+  dashboards: true
+  # Must match the kube-prometheus-stack release so its Prometheus selects these objects.
+  releaseLabel: kube-prometheus-stack

@@ -7,6 +7,9 @@ On linux, the easiest way to run and test the project is through nix.
 
 See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 
+- [docs/observability.md](docs/observability.md): metrics, logs, traces and alerts, opt-in with `just up -d --profile monitoring` (Grafana on http://localhost:3001)
+- [docs/kubernetes.md](docs/kubernetes.md): Helm chart and local Kubernetes cluster (`just k8s-up`)
+
 ## Quick start
 
 ```bash
@@ -37,7 +40,7 @@ Run `just` to list all recipes. It uses `podman` if available, otherwise `docker
 
 | Recipe | What it does |
 |---|---|
-| `just up -d` / `just down` | Start / stop the stack |
+| `just up -d` / `just down` | Start / stop the stack (`just up -d --profile monitoring` adds the observability services; `down` stops both) |
 | `just rm` | Stop and remove built images and containers (clean rebuild: `just reset`) |
 | `just reset` | Rebuild without cache and recreate containers |
 | `just nuke` | Delete containers, images **and volumes** (asks first) |
@@ -67,6 +70,8 @@ browser ──► proxy (Traefik :8000) ──┬─ /           ──► front
 | `backend` | Express API (proxy) + worker: tiles, pixels, brush, PNG export, snapshots, `/admin/*`, WebSocket on `/ws` | Routed on `/api` (prefix stripped by Traefik) and `/ws`. The API validates, checks pause and quota (shared state in `db`), and queues commands on `rabbitmq`; the worker writes `db` and publishes events to a fanout exchange that every instance relays to its WebSocket clients |
 | `db` | Postgres 16 | Used by `backend` through Prisma; migrations run on container start |
 | `rabbitmq` | Message broker; management UI on `:15672` | Used by `backend` |
+| `prometheus`, `alertmanager`, `alert-sink`, `node-exporter` (profile `monitoring`) | Metrics, alert rules and notifications | Scrape `backend:9464`, `proxy:8082`, `rabbitmq:15692`; see [observability](docs/observability.md) |
+| `loki`, `tempo`, `alloy`, `grafana` (profile `monitoring`) | Logs, traces, telemetry agent, UI (`127.0.0.1:3001`) | Alloy tails container logs via the socket and receives OTLP traces from `proxy` and `backend` |
 
 ## Configuration (`.env`)
 
@@ -79,6 +84,8 @@ Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .
 | `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_PORT` | `rabbitmq`, `backend` | Broker credentials and address |
 | `RATE_LIMIT` | `backend` | Pixels per minute per user, default `20`; `0` disables limiting and also lifts the brush size cap of 16 (dev only) |
 | `ADMIN_USERS` | `backend` | Comma-separated users allowed on `/admin/*` |
+| `GRAFANA_PORT`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` | `grafana` | Grafana host port (`3001`) and login |
+| `PROMETHEUS_PORT`, `PROMETHEUS_RETENTION`, `ALERTMANAGER_PORT` | `prometheus`, `alertmanager` | Host ports and metrics retention (`7d`) |
 | `PODMAN_STORAGE_DIR` (optional) | Nix dev shell | Where rootless Podman stores images and containers |
 | `PODMAN_NO_SOCKET` (optional) | Nix dev shell | Set to `1` to skip starting the Podman API socket (CI, headless) |
 
@@ -88,7 +95,7 @@ Change the example passwords before exposing the stack anywhere. To add a variab
 
 Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
-- `ci.yml`: dev shell / `nix flake check`, backend and frontend lint + tests, Dockerfile / compose / workflow linting, `npm audit`, a full stack boot test through Traefik, and GitNexus analysis. The `ci-required` job gates merges.
+- `ci.yml`: dev shell / `nix flake check`, backend and frontend lint + tests, Dockerfile / compose / workflow linting, monitoring config lint (`just monitoring-lint`), Kubernetes manifest validation (`just k8s-validate`), `npm audit`, a full stack boot test through Traefik, and GitNexus analysis. The `ci-required` job gates merges.
 - `ci-sast.yml`: SonarQube Cloud and CodeQL scans (needs the `SONARQUBE_TOKEN` and `SAST_REPORT_TOKEN` secrets).
 - `check-conventional-commit-pr-title.yml`: PR titles must follow Conventional Commits.
 

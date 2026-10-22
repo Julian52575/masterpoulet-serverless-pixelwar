@@ -1,0 +1,101 @@
+# One Alloy instance does what the Compose one does: ship logs to Loki and receive OTLP
+# traces for Tempo. It reads logs through the Kubernetes API (no hostPath), so a single
+# Deployment covers the cluster; switch to a DaemonSet with file tailing for large clusters.
+fullnameOverride: alloy
+
+controller:
+  type: deployment
+  replicas: 1
+
+alloy:
+  extraPorts:
+    - { name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP }
+    - { name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP }
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  configMap:
+    content: |
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        // `service` matches the Compose service name, so the same LogQL works in both.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component", "__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_container_name"]
+          separator     = ";"
+          regex         = "^;*([^;]+).*$"
+          target_label  = "service"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.json.receiver]
+      }
+
+      // Kubernetes events (failed scheduling, image pulls, OOM kills, probe failures) for
+      // troubleshooting deployments after the fact.
+      loki.source.kubernetes_events "events" {
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.process "json" {
+        stage.json {
+          expressions = { level = "level", correlation_id = "correlation_id", trace_id = "trace_id" }
+        }
+        stage.labels {
+          values = { level = "" }
+        }
+        stage.structured_metadata {
+          values = { correlation_id = "", trace_id = "" }
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+
+      otelcol.receiver.otlp "default" {
+        http {}
+        grpc {}
+        output {
+          traces = [otelcol.processor.batch.default.input]
+        }
+      }
+
+      otelcol.processor.batch "default" {
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo.monitoring.svc:4317"
+          tls {
+            insecure = true
+          }
+        }
+      }
+
+serviceMonitor:
+  enabled: true
+  additionalLabels: { release: kube-prometheus-stack }

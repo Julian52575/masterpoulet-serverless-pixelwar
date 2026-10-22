@@ -86,21 +86,31 @@ describe("events", () => {
     expect(ch.ack).toHaveBeenCalled();
   });
 
-  it("drops a command whose handler fails without crashing", async () => {
-    jest.spyOn(console, "error").mockImplementation(() => {});
+  it("parks a command whose handler fails in the dead-letter queue without crashing", async () => {
+    jest.spyOn(process.stdout, "write").mockImplementation(() => true);
     const { ch, commands } = await setup(async () => {
       throw new Error("boom");
     });
-    await commands(msg("pixel.draw"));
-    expect(ch.nack).toHaveBeenCalledWith(expect.anything(), false, false);
+    const failed = { ...msg("pixel.draw"), properties: { correlationId: "abc-123" } };
+    await commands(failed);
+    expect(ch.sendToQueue).toHaveBeenCalledWith("pixelwar.commands.dlq", failed.content, {
+      persistent: true,
+      correlationId: "abc-123",
+      headers: { "x-error": "boom" },
+    });
+    expect(ch.ack).toHaveBeenCalledWith(failed);
   });
 
   it("queues published commands", async () => {
     const { ch, events } = await setup(jest.fn());
-    await events.publish("pixel.draw", { a: 1 });
+    await events.publish("pixel.draw", { a: 1 }, { correlationId: "abc-123" });
     expect(ch.sendToQueue.mock.calls[0][0]).toBe("pixelwar.commands.fifo");
     expect(JSON.parse(ch.sendToQueue.mock.calls[0][1])).toEqual({ type: "pixel.draw", payload: { a: 1 } });
-    expect(ch.sendToQueue.mock.calls[0][2]).toEqual({ persistent: true });
+    expect(ch.sendToQueue.mock.calls[0][2]).toEqual({
+      persistent: true,
+      correlationId: "abc-123",
+      timestamp: expect.any(Number),
+    });
   });
 
   it("reconnects after the broker connection drops", async () => {

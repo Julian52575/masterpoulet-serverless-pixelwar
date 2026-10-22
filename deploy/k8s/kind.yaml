@@ -1,0 +1,7 @@
+# Single-node local cluster. Access goes through `kubectl port-forward` (see the justfile),
+# so no host ports are mapped and nothing here depends on the host.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: pixelwar
+nodes:
+  - role: control-plane

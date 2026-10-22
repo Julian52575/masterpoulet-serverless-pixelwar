@@ -1,0 +1,68 @@
+{{- $release := dict "release" .Values.monitoring.releaseLabel }}
+{{- if .Values.monitoring.serviceMonitors }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}-backend
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- toYaml $release | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pixelwar.selector" (list $ "backend") | nindent 6 }}
+  endpoints:
+    - port: metrics
+      interval: 15s
+      # Same `component` label as the Compose scrape config, so the shared rules match.
+      relabelings:
+        - { targetLabel: component, replacement: backend, action: replace }
+{{- if .Values.rabbitmq.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}-rabbitmq
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- toYaml $release | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pixelwar.selector" (list $ "rabbitmq") | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics/detailed
+      params:
+        family: [queue_coarse_metrics, queue_consumer_count]
+      interval: 15s
+      relabelings:
+        - { targetLabel: component, replacement: rabbitmq, action: replace }
+{{- end }}
+{{- end }}
+{{- if .Values.monitoring.prometheusRules }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-alerts
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- toYaml $release | nindent 4 }}
+# Same file Compose loads, copied without templating so Prometheus expands its $value.
+spec:
+  {{- .Files.Get "files/alerts/app.yml" | nindent 2 }}
+{{- end }}
+{{- if .Values.monitoring.dashboards }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-dashboards
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  pixelwar.json: |-
+    {{- .Files.Get "files/dashboards/pixelwar.json" | nindent 4 }}
+{{- end }}

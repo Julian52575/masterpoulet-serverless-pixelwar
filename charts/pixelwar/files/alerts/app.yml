@@ -1,0 +1,73 @@
+# Application alerts, shared verbatim by Compose (Prometheus rule file) and Kubernetes
+# (rendered into a PrometheusRule by the chart). Targets carry a `component` label in both.
+groups:
+  - name: pixelwar-app
+    rules:
+      - alert: PixelwarBackendDown
+        # `or vector(0)` also fires when no target exists at all (e.g. a crash-looping pod).
+        expr: (sum(up{component="backend"}) or vector(0)) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: No backend instance is up
+          description: Prometheus cannot scrape any backend; the API and worker are unavailable.
+          runbook: docs/observability.md#pixelwarbackenddown
+
+      - alert: PixelwarHighErrorRate
+        expr: |
+          sum(rate(pixelwar_http_request_duration_seconds_count{status=~"5.."}[5m]))
+            / sum(rate(pixelwar_http_request_duration_seconds_count[5m])) > 0.05
+          and sum(rate(pixelwar_http_request_duration_seconds_count[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx ratio is {{ $value | humanizePercentage }}"
+          description: More than 5% of API requests fail. Check backend logs for "unhandled error".
+          runbook: docs/observability.md#pixelwarhigherrorrate
+
+      - alert: PixelwarHighLatency
+        # The API only validates and queues, so p95 above 500ms means the db or broker is struggling.
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(pixelwar_http_request_duration_seconds_bucket[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency is {{ $value | humanizeDuration }}"
+          description: The proxy acknowledgement time is above 500ms.
+          runbook: docs/observability.md#pixelwarhighlatency
+
+      - alert: PixelwarQueueBacklog
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(pixelwar_command_queue_wait_seconds_bucket[5m]))) > 30
+          or sum(rabbitmq_detailed_queue_messages_ready{queue="pixelwar.commands.fifo"}) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Draw commands are waiting too long in the queue
+          description: Commands wait over 30s (p95) or more than 1000 are pending; the worker is not keeping up.
+          runbook: docs/observability.md#pixelwarqueuebacklog
+
+      - alert: PixelwarDeadLetters
+        expr: sum(rabbitmq_detailed_queue_messages{queue="pixelwar.commands.dlq"}) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} failed command(s) in the dead-letter queue"
+          description: The worker failed to apply some commands. Find them by correlation id in the logs.
+          runbook: docs/observability.md#pixelwardeadletters
+
+      - alert: PixelwarBackendMemoryHigh
+        # Resource alert; 400MiB leaves headroom under the chart's default 512Mi limit.
+        expr: max(process_resident_memory_bytes{component="backend"}) > 400 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend resident memory is {{ $value | humanize1024 }}B"
+          description: The backend is close to its memory limit and risks an OOM kill.
+          runbook: docs/observability.md#pixelwarbackendmemoryhigh

@@ -5,6 +5,7 @@ const { SIZE, MAX_IMAGE } = require("./grid");
 // keeping broker messages far below RabbitMQ's size limit.
 const MAX_EVENT_PIXELS = 4096;
 const { renderGrid } = require("./render");
+const { log } = require("./log");
 
 // Consumes the commands queued by the API; returns the event to broadcast to clients.
 function createWorker({ db, store, admins = [] }) {
@@ -71,7 +72,7 @@ function createWorker({ db, store, admins = [] }) {
     if (!command) return null;
     // Checked again here: the queue is not a trust boundary.
     if (!admins.includes(payload.by)) {
-      console.warn(`backend: refused ${type} from non-admin ${payload.by}`);
+      log.warn("refused admin command from non-admin", { event_type: type, user_id: payload.by });
       return null;
     }
     return command(payload);

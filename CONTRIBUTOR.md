@@ -32,6 +32,7 @@ The [`api-scripts/`](api-scripts/README.md) folder holds helper scripts that exe
 - **Link an issue** in the PR description.
 - **Comments:** keep them short and explain why, not what.
 - **Secrets** never go in git. `.env` is ignored; put new variables in `.env.example` with a safe placeholder.
+- **Workflow actions are pinned to a full commit SHA**, never a tag or branch, with the release as a trailing comment: `uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0`. Tags can be moved to point at other code; a SHA cannot. This applies to `.github/workflows/` and `.github/actions/`; local actions (`./.github/actions/...`) are exempt.
 - **Branches:** commit your work on branches and merge them to `main` using a **Pull Request**
 - **Release:** Releases are made from `main` by closing the `release-please` Pull Request.
 

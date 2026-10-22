@@ -1,7 +1,7 @@
 # Desired state of one environment. Each environment overrides this with envs/<env>.yaml,
 # selected by its root Application (root-<env>.yaml).
 
-repoURL: https://github.com/Julian52575/serverless-pixelwar.git
+repoURL: https://github.com/Julian52575/masterpoulet-serverless-pixelwar.git
 # Branch, tag or commit every child Application tracks. Environments pin what they deploy.
 targetRevision: main
 env: local

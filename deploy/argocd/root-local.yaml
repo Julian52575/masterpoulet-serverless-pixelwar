@@ -7,7 +7,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/Julian52575/serverless-pixelwar.git
+    repoURL: https://github.com/Julian52575/masterpoulet-serverless-pixelwar.git
     targetRevision: main
     path: deploy/argocd
     helm:

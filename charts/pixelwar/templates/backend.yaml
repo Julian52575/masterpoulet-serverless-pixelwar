@@ -20,6 +20,8 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
+        # The images declare `USER node` by name; the kubelet needs its uid to verify non-root.
+        runAsUser: 1000
       containers:
         - name: backend
           image: {{ include "pixelwar.image" (dict "image" .Values.backend.image "root" .) }}

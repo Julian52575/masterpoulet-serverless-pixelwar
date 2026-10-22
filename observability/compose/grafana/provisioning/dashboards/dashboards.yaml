@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: pixelwar
+    folder: Pixelwar
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

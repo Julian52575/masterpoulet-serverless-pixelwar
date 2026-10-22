@@ -1,0 +1,14 @@
+route:
+  receiver: local-sink
+  group_by: [alertname, component]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  # Logs every notification to stdout (then Loki), so the path is verifiable without credentials.
+  # For a real channel see docs/observability.md#notifications.
+  - name: local-sink
+    webhook_configs:
+      - url: http://alert-sink:8080/alerts
+        send_resolved: true

@@ -6,6 +6,11 @@
 #   http://localhost:8000/ws         -> backend  (WebSocket)
 #   http://localhost:8080/           -> Traefik dashboard (insecure, local only)
 #   http://localhost:15672/          -> RabbitMQ management UI
+#
+# Observability (see docs/observability.md):
+#   http://localhost:3001/           -> Grafana (dashboards, logs, traces)
+#   http://localhost:9090/           -> Prometheus
+#   http://localhost:9093/           -> Alertmanager
 
 services:
   proxy:
@@ -19,6 +24,12 @@ services:
       - --api.dashboard=true
       - --api.insecure=true
       - --accesslog=true
+      - --accesslog.format=json
+      - --entrypoints.metrics.address=:8082
+      - --metrics.prometheus.entrypoint=metrics
+      # Traefik starts the trace, so it spans the whole request including routing.
+      - --tracing.otlp.http.endpoint=http://alloy:4318/v1/traces
+      - --tracing.serviceName=proxy
     ports:
       - "${PROXY_PORT:-8000}:80"
       - "${PROXY_DASHBOARD_PORT:-8080}:8080"
@@ -74,6 +85,8 @@ services:
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RATE_LIMIT: ${RATE_LIMIT:-20}
       ADMIN_USERS: ${ADMIN_USERS:-}
+      OTEL_SERVICE_NAME: backend
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
     volumes:
       - ./backend:/app
       - backend-node-modules:/app/node_modules
@@ -128,8 +141,113 @@ services:
       - traefik.http.services.frontend.loadbalancer.server.port=3000
     restart: unless-stopped
 
+  # ---- Observability -------------------------------------------------------
+  # Same tools and configuration as the Kubernetes deployment (charts/pixelwar/files holds
+  # the shared alert rules and dashboard). Ports bind to localhost: none of these have auth.
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-7d}
+      # Tempo's metrics generator pushes service-graph metrics here.
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./observability/compose/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./charts/pixelwar/files/alerts:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  alertmanager:
+    image: quay.io/prometheus/alertmanager:v0.34.1
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./observability/compose/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    restart: unless-stopped
+
+  # Stand-in notification channel: prints each Alertmanager webhook call to its log.
+  alert-sink:
+    image: docker.io/mendhak/http-https-echo:42
+    environment:
+      HTTP_PORT: 8080
+      LOG_IGNORE_PATH: /health
+    restart: unless-stopped
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.12.1
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  loki:
+    image: docker.io/grafana/loki:3.6.16
+    command: -config.file=/etc/loki/loki.yaml
+    volumes:
+      - ./observability/compose/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  tempo:
+    image: docker.io/grafana/tempo:2.9.0
+    command: -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - ./observability/compose/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    restart: unless-stopped
+
+  alloy:
+    image: docker.io/grafana/alloy:v1.21.1
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/compose/alloy.alloy:/etc/alloy/config.alloy:ro
+      - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro"
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - loki
+      - tempo
+    restart: unless-stopped
+
+  grafana:
+    image: docker.io/grafana/grafana:13.2.4
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/pixelwar.json
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ./observability/compose/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./charts/pixelwar/files/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+
 volumes:
   app-db-data:
   rabbitmq-data:
   backend-node-modules:
   frontend-node-modules:
+  prometheus-data:
+  alertmanager-data:
+  loki-data:
+  tempo-data:
+  alloy-data:
+  grafana-data:

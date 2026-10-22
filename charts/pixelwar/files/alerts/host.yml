@@ -1,0 +1,26 @@
+# Host resource alerts for Compose only: in Kubernetes, kube-prometheus-stack ships
+# equivalent node and pod rules, so the chart does not render this file.
+groups:
+  - name: host-resources
+    rules:
+      - alert: HostMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host has {{ $value | humanizePercentage }} memory available"
+          runbook: docs/observability.md#hostmemorylow
+
+      - alert: HostDiskLow
+        # Read-only mounts (snaps, images) are always "full" by design.
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 0.10
+          and node_filesystem_readonly == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.mountpoint }} has {{ $value | humanizePercentage }} free"
+          runbook: docs/observability.md#hostdisklow

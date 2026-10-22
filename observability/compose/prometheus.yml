@@ -1,0 +1,44 @@
+# Compose has no service discovery worth using here, so targets are static. Every target gets
+# a `component` label, the same one the Kubernetes ServiceMonitors set, so the shared alert
+# rules and dashboards work unchanged in both environments.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  - job_name: backend
+    static_configs:
+      - targets: [backend:9464]
+        labels: { component: backend }
+
+  - job_name: proxy
+    static_configs:
+      - targets: [proxy:8082]
+        labels: { component: proxy }
+
+  - job_name: rabbitmq
+    # Per-queue depth lives on the detailed endpoint; the default one only has totals.
+    metrics_path: /metrics/detailed
+    params:
+      family: [queue_coarse_metrics, queue_consumer_count]
+    static_configs:
+      - targets: [rabbitmq:15692]
+        labels: { component: rabbitmq }
+
+  - job_name: node
+    static_configs:
+      - targets: [node-exporter:9100]
+        labels: { component: host }
+
+  - job_name: observability
+    static_configs:
+      - targets: [localhost:9090, alertmanager:9093, loki:3100, tempo:3200, alloy:12345]
+        labels: { component: observability }

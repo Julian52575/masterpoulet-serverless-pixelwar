@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { vi } from 'vitest'
 import App from './App'
 
@@ -7,13 +7,14 @@ class FakeWebSocket {
 }
 
 describe('App', () => {
-  it('lists items from the API', async () => {
+  it('fetches the viewport and shows the palette', async () => {
     vi.stubGlobal('WebSocket', FakeWebSocket)
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ json: async () => [{ id: 1, title: 'first' }] }),
-    )
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] })
+    vi.stubGlobal('fetch', fetchMock)
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({ fillRect() {}, fillStyle: '' })
     render(<App />)
-    expect(await screen.findByText('first')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Author')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Color #000000'))
+    expect(fetchMock.mock.calls.some(([u]) => String(u).startsWith('/api/pixels?'))).toBe(true)
   })
 })

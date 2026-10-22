@@ -7,10 +7,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Item {
-  id        Int      @id @default(autoincrement())
-  title     String
-  createdAt DateTime @default(now()) @map("created_at")
+model Pixel {
+  x         Int
+  y         Int
+  color     String
+  author    String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  @@map("items")
+  @@id([x, y])
+  @@map("pixels")
 }

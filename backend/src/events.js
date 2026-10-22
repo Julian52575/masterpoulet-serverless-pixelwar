@@ -1,7 +1,7 @@
 const amqp = require("amqplib");
 const { WebSocketServer, WebSocket } = require("ws");
 
-const QUEUE = "item.created";
+const QUEUE = "pixel.updated";
 
 function broadcast(wss, message) {
   for (const client of wss.clients) {
@@ -21,7 +21,7 @@ async function connectWithRetry(url, attempts = 10) {
   }
 }
 
-// Items are published to RabbitMQ and consumed here to fan out over /ws.
+// Pixels are published to RabbitMQ and consumed here to fan out over /ws.
 async function initEvents({ server, url }) {
   const wss = new WebSocketServer({ server, path: "/ws" });
   const conn = await connectWithRetry(url);

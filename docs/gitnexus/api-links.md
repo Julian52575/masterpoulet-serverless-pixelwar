@@ -12,5 +12,7 @@ see. Consumers are matched by URL, so they apply to every method on the row.
 
 | route | handler | methods | consumers |
 | --- | --- | --- | --- |
+| /config | backend/src/app.js | GET |  |
 | /health | backend/src/app.js | GET |  |
-| /items | backend/src/app.js | GET, POST |  |
+| /pixels | backend/src/app.js | GET, POST |  |
+| /pixels/:x/:y | backend/src/app.js | GET |  |

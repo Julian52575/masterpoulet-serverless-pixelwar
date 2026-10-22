@@ -1,0 +1,2 @@
+# Docs inside templates/ would be rendered as a manifest.
+templates/README.md

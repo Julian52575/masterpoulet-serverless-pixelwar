@@ -83,6 +83,13 @@ Docker or Podman. kind runs on rootless Podman (`KIND_EXPERIMENTAL_PROVIDER=podm
 the recipes) but needs cgroup v2 with CPU delegation; see
 [kind rootless](https://kind.sigs.k8s.io/docs/user/rootless/).
 
+kind shares the host's inotify limits with every pod. The default of 128 instances is too low
+for this stack (Argo CD's repo-server fails with `too many open files`). Raise it on the host:
+
+```bash
+sudo sysctl fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288
+```
+
 ## Secrets
 
 Nothing sensitive is in Git. The charts reference two Secrets:

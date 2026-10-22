@@ -73,6 +73,18 @@ export class TileCache {
     }
   }
 
+  // Drops cached tiles overlapping a changed rectangle (end-exclusive) so they are fetched fresh.
+  invalidate(r: { x0: number; y0: number; x1: number; y1: number }) {
+    const t = this.tileSize
+    let dropped = false
+    for (let ty = Math.floor(r.y0 / t); ty <= Math.floor((r.y1 - 1) / t); ty++) {
+      for (let tx = Math.floor(r.x0 / t); tx <= Math.floor((r.x1 - 1) / t); tx++) {
+        dropped = this.tiles.delete(`${tx},${ty}`) || dropped
+      }
+    }
+    return dropped
+  }
+
   reset() {
     this.gen++
     this.tiles.clear()

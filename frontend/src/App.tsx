@@ -135,6 +135,9 @@ export default function App() {
             for (const p of msg.payload as Pixel[]) cacheRef.current.apply(p)
             schedule()
             break
+          case 'tiles.invalidated':
+            if (cacheRef.current.invalidate(msg.payload)) setReload((n) => n + 1)
+            break
           case 'canvas.cleared':
             cacheRef.current.clear()
             setInfo(null)

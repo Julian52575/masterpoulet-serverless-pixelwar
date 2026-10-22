@@ -43,14 +43,20 @@ describe("pixels", () => {
     expect(res.status).toBe(202);
     expect(publish).toHaveBeenCalledWith(
       "pixel.draw",
-      expect.objectContaining({ author: "bob", minute: 1, pixels: [{ x: 3, y: 4, color: "#00ff00" }] }),
+      expect.objectContaining({
+        author: "bob",
+        minute: 1,
+        color: "#00ff00",
+        count: 1,
+        rect: { x0: 3, y0: 4, x1: 4, y1: 5 },
+      }),
     );
   });
 
   it("accepts palette names", async () => {
     const { app, publish } = setup();
     await request(app).post("/pixels").send({ ...px, color: "Red" });
-    expect(publish.mock.calls[0][1].pixels[0].color).toBe("#e50000");
+    expect(publish.mock.calls[0][1].color).toBe("#e50000");
   });
 
   it.each([
@@ -84,14 +90,14 @@ describe("brush and rate limit", () => {
   it("draws size*size pixels, clipped at the grid edge", async () => {
     const { app, publish } = setup();
     await request(app).post("/brush").send({ ...px, x: 0, y: 0, size: 3 });
-    expect(publish.mock.calls[0][1].pixels).toHaveLength(4);
+    expect(publish.mock.calls[0][1]).toMatchObject({ rect: { x0: 0, y0: 0, x1: 2, y1: 2 }, count: 4 });
   });
 
   it("truncates a brush to the remaining quota", async () => {
     const { app, publish } = setup({ store: fakeStore({ limit: 10 }) });
     const big = { ...px, x: 5, y: 5, size: 5 };
     expect((await request(app).post("/brush").send(big)).body).toEqual({ accepted: 10 });
-    expect(publish.mock.calls[0][1].pixels).toHaveLength(10);
+    expect(publish.mock.calls[0][1].count).toBe(10);
     expect((await request(app).post("/brush").send(big)).status).toBe(429);
   });
 
@@ -101,6 +107,14 @@ describe("brush and rate limit", () => {
     const open = setup({ unlimited: true, store: fakeStore({ limit: Infinity }) }).app;
     expect((await request(open).post("/brush").send(big)).status).toBe(202);
     expect((await request(open).get("/config")).body.maxBrush).toBe(10000);
+  });
+
+  it("queues a full-grid brush as a small message", async () => {
+    const open = setup({ unlimited: true, store: fakeStore({ limit: Infinity }) });
+    await request(open.app).post("/brush").send({ ...px, x: 4999, y: 4999, size: 10000 });
+    const message = open.publish.mock.calls[0][1];
+    expect(message.count).toBe(100_000_000);
+    expect(JSON.stringify(message).length).toBeLessThan(300);
   });
 
   it("rejects draws while paused", async () => {

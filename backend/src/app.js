@@ -26,18 +26,22 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
   // Without a rate limit nothing else bounds a brush, so only the grid does.
   const maxBrush = unlimited ? SIZE : MAX_BRUSH;
 
-  const submit = async (res, user, pixels) => {
+  // A stroke is queued as a rectangle plus a pixel count, never as a pixel list,
+  // so the message stays tiny whatever the brush size.
+  const submit = async (res, user, rect, color) => {
     if (await store.isPaused()) return res.status(423).json({ error: "drawing is paused" });
-    const { granted, minute } = await store.take(user, pixels.length);
+    const area = (rect.x1 - rect.x0) * (rect.y1 - rect.y0);
+    const { granted, minute } = await store.take(user, area);
     if (granted === 0) return res.status(429).json({ error: "rate limited" });
-    const accepted = pixels.slice(0, granted);
     await publish("pixel.draw", {
-      pixels: accepted,
+      rect,
+      count: granted,
+      color,
       author: user,
       at: new Date(now()).toISOString(),
       minute,
     });
-    res.status(202).json({ accepted: accepted.length });
+    res.status(202).json({ accepted: granted });
   };
 
   app.get("/health", (req, res) => res.json({ status: "ok" }));
@@ -66,7 +70,7 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
     const parsed = pixelSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "invalid pixel" });
     const { x, y, color, author: user } = parsed.data;
-    await submit(res, user, [{ x, y, color }]);
+    await submit(res, user, { x0: x, y0: y, x1: x + 1, y1: y + 1 }, color);
   });
 
   // Square brush centred on (x, y), clipped to the grid; truncated to the remaining quota.
@@ -75,15 +79,13 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
     if (!parsed.success) return res.status(400).json({ error: "invalid brush" });
     const { x, y, size, color, author: user } = parsed.data;
     const start = -Math.floor((size - 1) / 2);
-    const x0 = Math.max(0, x + start);
-    const y0 = Math.max(0, y + start);
-    const x1 = Math.min(SIZE, x + start + size);
-    const y1 = Math.min(SIZE, y + start + size);
-    const pixels = [];
-    for (let px = x0; px < x1; px++) {
-      for (let py = y0; py < y1; py++) pixels.push({ x: px, y: py, color });
-    }
-    await submit(res, user, pixels);
+    const rect = {
+      x0: Math.max(0, x + start),
+      y0: Math.max(0, y + start),
+      x1: Math.min(SIZE, x + start + size),
+      y1: Math.min(SIZE, y + start + size),
+    };
+    await submit(res, user, rect, color);
   });
 
   // Current state as a PNG: the painted area, or the requested region.

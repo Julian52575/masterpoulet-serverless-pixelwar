@@ -2,6 +2,7 @@ const { createWorker } = require("../src/worker");
 
 function setup({ paused = false } = {}) {
   const db = {
+    $executeRaw: jest.fn().mockResolvedValue(5000),
     $queryRaw: jest.fn(async () => [{ x: 1, y: 2, color: "#000000", author: "bob", updatedAt: "t" }]),
     pixel: {
       deleteMany: jest.fn(),
@@ -19,7 +20,14 @@ function setup({ paused = false } = {}) {
   return { db, store, handle: createWorker({ db, store, admins: ["root"] }) };
 }
 
-const job = { pixels: [{ x: 1, y: 2, color: "#000000" }], author: "bob", at: "t", minute: 7 };
+const job = {
+  rect: { x0: 1, y0: 2, x1: 2, y1: 3 },
+  count: 1,
+  color: "#000000",
+  author: "bob",
+  at: "t",
+  minute: 7,
+};
 
 describe("worker", () => {
   it("writes a stroke and returns only the changed pixels", async () => {
@@ -28,6 +36,15 @@ describe("worker", () => {
     expect(event.type).toBe("pixels.updated");
     expect(event.payload).toHaveLength(1);
     expect(db.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces a large stroke as a rectangle to refetch", async () => {
+    const { handle, db } = setup();
+    const rect = { x0: 0, y0: 0, x1: 100, y1: 100 };
+    const event = await handle("pixel.draw", { ...job, rect, count: 5000 });
+    expect(event).toEqual({ type: "tiles.invalidated", payload: rect });
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(db.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("emits nothing when every pixel was already newer", async () => {

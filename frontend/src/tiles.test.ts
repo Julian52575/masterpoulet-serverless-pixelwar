@@ -36,6 +36,15 @@ describe('TileCache', () => {
     expect(new TileCache(256, 10000).apply(px('#111111', 't'))).toBe(false)
   })
 
+  it('drops only the tiles overlapping an invalidated rectangle', () => {
+    const cache = new TileCache(256, 10000)
+    cache.open(0, 0)
+    cache.open(1, 0)
+    cache.open(2, 0)
+    expect(cache.invalidate({ x0: 0, y0: 0, x1: 512, y1: 10 })).toBe(true)
+    expect([cache.has(0, 0), cache.has(1, 0), cache.has(2, 0)]).toEqual([false, false, true])
+  })
+
   it('evicts the least recently drawn tiles', () => {
     const cache = new TileCache(256, 10000, 2)
     cache.open(0, 0)

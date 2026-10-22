@@ -1,31 +1,41 @@
+const { Prisma } = require("@prisma/client");
 const { SIZE, MAX_IMAGE } = require("./grid");
+
+// Above this many pixels a stroke is announced as a rectangle to refetch, not as a pixel list,
+// keeping broker messages far below RabbitMQ's size limit.
+const MAX_EVENT_PIXELS = 4096;
 const { renderGrid } = require("./render");
 
 // Consumes the commands queued by the API; returns the event to broadcast to clients.
 function createWorker({ db, store, admins = [] }) {
-  const draw = async ({ pixels, author, at, minute }) => {
+  const draw = async ({ rect, count, color, author, at, minute }) => {
     // Pause may have started after the API accepted the draw.
     if (await store.isPaused()) {
-      await store.refund(author, pixels.length, minute);
+      await store.refund(author, count, minute);
       return null;
     }
-    let rows;
+    const height = rect.y1 - rect.y0;
+    // Cells are generated in SQL, column by column, and cut at `count` when the quota truncated the
+    // stroke. The WHERE keeps the newest write when draws race on a pixel.
+    const upsert = Prisma.sql`
+      INSERT INTO pixels (x, y, color, author, updated_at)
+      SELECT ${rect.x0}::int + i / ${height}::int, ${rect.y0}::int + i % ${height}::int,
+             ${color}, ${author}, ${at}::timestamp(3)
+      FROM generate_series(0, ${count}::int - 1) AS i
+      ON CONFLICT (x, y) DO UPDATE SET
+        color = EXCLUDED.color, author = EXCLUDED.author, updated_at = EXCLUDED.updated_at
+      WHERE pixels.updated_at <= EXCLUDED.updated_at`;
     try {
-      // One statement per stroke; the WHERE keeps the newest write when draws race on a pixel.
-      rows = await db.$queryRaw`
-        INSERT INTO pixels (x, y, color, author, updated_at)
-        SELECT t.x, t.y, t.color, ${author}, ${at}::timestamp(3)
-        FROM unnest(${pixels.map((p) => p.x)}::int[], ${pixels.map((p) => p.y)}::int[],
-                    ${pixels.map((p) => p.color)}::text[]) AS t(x, y, color)
-        ON CONFLICT (x, y) DO UPDATE SET
-          color = EXCLUDED.color, author = EXCLUDED.author, updated_at = EXCLUDED.updated_at
-        WHERE pixels.updated_at <= EXCLUDED.updated_at
-        RETURNING x, y, color, author, updated_at AS "updatedAt"`;
+      if (count > MAX_EVENT_PIXELS) {
+        await db.$executeRaw`${upsert}`;
+        return { type: "tiles.invalidated", payload: rect };
+      }
+      const rows = await db.$queryRaw`${upsert} RETURNING x, y, color, author, updated_at AS "updatedAt"`;
+      return rows.length ? { type: "pixels.updated", payload: rows } : null;
     } catch (err) {
-      await store.refund(author, pixels.length, minute).catch(() => {});
+      await store.refund(author, count, minute).catch(() => {});
       throw err;
     }
-    return rows.length ? { type: "pixels.updated", payload: rows } : null;
   };
 
   const snapshot = async ({ at }) => {

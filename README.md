@@ -75,7 +75,7 @@ Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .
 | `PROXY_PORT`, `PROXY_DASHBOARD_PORT` | `proxy` | Host ports for the app (default `8000`) and the Traefik dashboard (`8080`) |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | `db`, `backend` | Database credentials; the backend's `DATABASE_URL` is built from them |
 | `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_PORT` | `rabbitmq`, `backend` | Broker credentials and address |
-| `RATE_LIMIT` | `backend` | Pixels per minute per user, default `20`; `0` disables limiting (dev only) |
+| `RATE_LIMIT` | `backend` | Pixels per minute per user, default `20`; `0` disables limiting and also lifts the brush size cap of 16 (dev only) |
 | `ADMIN_USERS` | `backend` | Comma-separated users allowed on `/admin/*` |
 | `PODMAN_STORAGE_DIR` (optional) | Nix dev shell | Where rootless Podman stores images and containers |
 | `PODMAN_NO_SOCKET` (optional) | Nix dev shell | Set to `1` to skip starting the Podman API socket (CI, headless) |

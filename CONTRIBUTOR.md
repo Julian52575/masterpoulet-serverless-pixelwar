@@ -10,6 +10,8 @@ Make sure to read the README.md.
 
 See the [README](README.md) for the stack and the `just` recipes.
 
+The [`api-scripts/`](api-scripts/README.md) folder holds helper scripts that exercise the running app, e.g. `draw_pixels.py` to draw random pixels. Set `RATE_LIMIT=0` in `.env` when generating load.
+
 ## Workflow
 
 1. Branch off `main`. Use a short name such as `feat/add-grid` or `fix/ws-reconnect`.

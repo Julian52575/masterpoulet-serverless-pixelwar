@@ -30,7 +30,7 @@ jobs:
             context: frontend
       fail-fast: true # fail all if any matrix jobs fails
     env:
-      IMAGE: ghcr.io/julian52575/serverless-pixelwar-${{ matrix.image }}
+      IMAGE: ghcr.io/julian52575/masterpoulet-serverless-pixelwar-${{ matrix.image }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

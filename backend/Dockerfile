@@ -27,6 +27,6 @@ COPY package.json ./
 COPY prisma ./prisma
 COPY src ./src
 USER node
-EXPOSE 3000
+EXPOSE 3000 9464
 # exec: node replaces sh as PID 1 so SIGTERM reaches it and shutdown is graceful.
-CMD ["sh", "-c", "npx prisma migrate deploy && exec node src/server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node --require ./src/telemetry.js src/server.js"]

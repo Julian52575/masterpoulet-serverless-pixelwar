@@ -1,8 +1,12 @@
+const { randomUUID } = require("node:crypto");
 const express = require("express");
+const { trace } = require("@opentelemetry/api");
 const { z } = require("zod");
 const { SIZE, TILE, MAX_BRUSH, MAX_IMAGE } = require("./grid");
 const { PALETTE, colorSchema } = require("./palette");
 const { inRegion, renderGrid } = require("./render");
+const { httpMetrics } = require("./metrics");
+const { log } = require("./log");
 
 const coord = z.coerce.number().int().min(0).max(SIZE - 1);
 const author = z.string().trim().min(1).max(64);
@@ -22,13 +26,24 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json());
+  app.use(httpMetrics);
+
+  // The correlation id is born here, at the entry point, and travels with the command to the
+  // worker so one draw can be followed through logs and traces. A caller may supply its own.
+  app.use((req, res, next) => {
+    const given = req.get("x-correlation-id");
+    req.correlationId = given && /^[\w-]{1,64}$/.test(given) ? given : randomUUID();
+    res.set("x-correlation-id", req.correlationId);
+    trace.getActiveSpan()?.setAttribute("correlation_id", req.correlationId);
+    next();
+  });
 
   // Without a rate limit nothing else bounds a brush, so only the grid does.
   const maxBrush = unlimited ? SIZE : MAX_BRUSH;
 
   // A stroke is queued as a rectangle plus a pixel count, never as a pixel list,
   // so the message stays tiny whatever the brush size.
-  const submit = async (res, user, rect, color) => {
+  const submit = async (req, res, user, rect, color) => {
     if (await store.isPaused()) return res.status(423).json({ error: "drawing is paused" });
     const area = (rect.x1 - rect.x0) * (rect.y1 - rect.y0);
     const { granted, minute } = await store.take(user, area);
@@ -40,6 +55,12 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
       author: user,
       at: new Date(now()).toISOString(),
       minute,
+    }, { correlationId: req.correlationId });
+    log.info("draw accepted", {
+      correlation_id: req.correlationId,
+      user_id: user,
+      event_type: "pixel.draw",
+      count: granted,
     });
     res.status(202).json({ accepted: granted });
   };
@@ -70,7 +91,7 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
     const parsed = pixelSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "invalid pixel" });
     const { x, y, color, author: user } = parsed.data;
-    await submit(res, user, { x0: x, y0: y, x1: x + 1, y1: y + 1 }, color);
+    await submit(req, res, user, { x0: x, y0: y, x1: x + 1, y1: y + 1 }, color);
   });
 
   // Square brush centred on (x, y), clipped to the grid; truncated to the remaining quota.
@@ -85,7 +106,7 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
       x1: Math.min(SIZE, x + start + size),
       y1: Math.min(SIZE, y + start + size),
     };
-    await submit(res, user, rect, color);
+    await submit(req, res, user, rect, color);
   });
 
   // Current state as a PNG: the painted area, or the requested region.
@@ -101,7 +122,11 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
 
   // Rendered by the worker, which announces `snapshot.ready` with the download URL.
   app.post("/snapshots", async (req, res) => {
-    await publish("snapshot.requested", { at: new Date(now()).toISOString() });
+    await publish(
+      "snapshot.requested",
+      { at: new Date(now()).toISOString() },
+      { correlationId: req.correlationId },
+    );
     res.status(202).json({ accepted: true });
   });
 
@@ -118,7 +143,7 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
     if (!admins.includes(by)) return res.status(403).json({ error: "admin only" });
     const parsed = schema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "invalid command" });
-    await publish(type, { ...parsed.data, by });
+    await publish(type, { ...parsed.data, by }, { correlationId: req.correlationId });
     res.status(202).json({ accepted: true });
   };
 
@@ -132,7 +157,7 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
-    console.error("backend: unhandled error", err);
+    log.error("unhandled error", { correlation_id: req.correlationId, error: err });
     res.status(500).json({ error: "internal error" });
   });
 

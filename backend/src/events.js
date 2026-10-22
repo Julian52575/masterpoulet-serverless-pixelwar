@@ -1,9 +1,13 @@
 const amqp = require("amqplib");
 const { WebSocketServer, WebSocket } = require("ws");
+const { log } = require("./log");
+const metrics = require("./metrics");
 
 // Renamed from "pixelwar.commands": a queue's arguments cannot change once declared.
 const COMMANDS = "pixelwar.commands.fifo";
 const EVENTS = "pixelwar.events";
+// Failed commands are parked here instead of dropped, so they can be counted, alerted on and replayed.
+const DLQ = "pixelwar.commands.dlq";
 
 function broadcast(wss, message) {
   for (const client of wss.clients) {
@@ -34,14 +38,14 @@ async function initEvents({ server, url, handle }) {
   // A broker error must not kill the process: log it and reconnect.
   const open = async () => {
     conn = await connectWithRetry(url);
-    conn.on("error", (err) => console.error("backend: amqp connection error:", err.message));
+    conn.on("error", (err) => log.error("amqp connection error", { error: err.message }));
     conn.on("close", () => {
       if (closing) return;
       channel = undefined;
       setTimeout(() => open().catch(fatal), 1000);
     });
     const ch = await conn.createChannel();
-    ch.on("error", (err) => console.error("backend: amqp channel error:", err.message));
+    ch.on("error", (err) => log.error("amqp channel error", { error: err.message }));
     // Channels close on protocol errors; dropping the connection triggers a clean reconnect.
     ch.on("close", () => !closing && conn.close().catch(() => {}));
 
@@ -54,32 +58,54 @@ async function initEvents({ server, url, handle }) {
     // and the event is published before the ack, so events leave in command order.
     await ch.assertQueue(COMMANDS, { arguments: { "x-single-active-consumer": true } });
     await ch.prefetch(1);
+    await ch.assertQueue(DLQ, { durable: true });
     await ch.consume(COMMANDS, async (msg) => {
       if (!msg) return;
+      const correlationId = msg.properties?.correlationId;
+      let type = "unknown";
       try {
-        const { type, payload } = JSON.parse(msg.content.toString());
-        const event = await handle(type, payload);
-        if (event) ch.publish(EVENTS, "", Buffer.from(JSON.stringify(event)));
+        const command = JSON.parse(msg.content.toString());
+        type = command.type;
+        const sentAt = msg.properties?.timestamp;
+        if (sentAt) metrics.commandWait.observe({ type }, Math.max(0, Date.now() - sentAt) / 1000);
+        const end = metrics.commandDuration.startTimer({ type });
+        const event = await handle(type, command.payload);
+        end();
+        if (event) ch.publish(EVENTS, "", Buffer.from(JSON.stringify(event)), { correlationId });
         ch.ack(msg);
+        metrics.commands.inc({ type, outcome: "ok" });
+        log.info("command processed", { correlation_id: correlationId, event_type: type, user_id: command.payload?.author });
       } catch (err) {
-        console.error("backend: worker failed", err);
-        ch.nack(msg, false, false);
+        log.error("command failed", { correlation_id: correlationId, event_type: type, error: err });
+        metrics.commands.inc({ type, outcome: "failed" });
+        // Ack only once the copy is parked, so a failure here still loses nothing silently.
+        ch.sendToQueue(DLQ, msg.content, {
+          persistent: true,
+          correlationId,
+          headers: { "x-error": String(err?.message ?? err) },
+        });
+        ch.ack(msg);
       }
     });
     channel = ch;
   };
 
   const fatal = (err) => {
-    console.error("backend: lost the broker", err);
+    log.error("lost the broker", { error: err });
     process.exit(1);
   };
 
   await open();
 
-  const publish = async (type, payload) => {
+  const publish = async (type, payload, { correlationId } = {}) => {
     if (!channel) throw new Error("broker unavailable");
     // Persistent so accepted draws survive a broker restart before the worker writes them.
-    channel.sendToQueue(COMMANDS, Buffer.from(JSON.stringify({ type, payload })), { persistent: true });
+    channel.sendToQueue(COMMANDS, Buffer.from(JSON.stringify({ type, payload })), {
+      persistent: true,
+      correlationId,
+      // Lets the worker measure how long the command waited in the queue.
+      timestamp: Date.now(),
+    });
   };
   // Open WebSockets would otherwise keep server.close() waiting forever.
   const close = async () => {

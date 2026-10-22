@@ -1,0 +1,25 @@
+# Ingress controller, as in Compose: routes /, /api and /ws, exports metrics, starts traces.
+metrics:
+  prometheus:
+    service:
+      enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels: { release: kube-prometheus-stack }
+      relabelings:
+        - { targetLabel: component, replacement: proxy, action: replace }
+
+tracing:
+  serviceName: proxy
+  otlp:
+    enabled: true
+    http:
+      enabled: true
+      endpoint: http://alloy.monitoring.svc:4318/v1/traces
+
+accessLog:
+  enabled: true
+  format: json
+
+service:
+  type: ClusterIP

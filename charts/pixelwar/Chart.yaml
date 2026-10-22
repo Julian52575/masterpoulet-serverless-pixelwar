@@ -1,0 +1,7 @@
+apiVersion: v2
+name: pixelwar
+description: Pixelwar canvas (API + worker, frontend) with optional in-cluster Postgres and RabbitMQ
+type: application
+version: 0.1.0
+# Image tags default to this; release-please tags images without a "v" prefix.
+appVersion: "latest"

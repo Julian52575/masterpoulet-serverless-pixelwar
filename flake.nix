@@ -37,6 +37,7 @@
             catatonit # lightweight PID 1 for `--init` / compose
             curl # the shellHook pings the podman API socket with it
             util-linux # setsid -- detaches the fallback API service from the tty
+            kind # local Kubernetes cluster (docs/kubernetes.md)
             # infra tooling
             git
           ] ++ (import ./nix/tools.nix { inherit pkgs; }).all ++ [

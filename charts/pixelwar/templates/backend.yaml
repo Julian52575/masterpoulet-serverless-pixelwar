@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-backend
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- include "pixelwar.selector" (list $ "backend") | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pixelwar.selector" (list $ "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pixelwar.selector" (list $ "backend") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: {{ include "pixelwar.image" (dict "image" .Values.backend.image "root" .) }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 3000 }
+            - { name: metrics, containerPort: 9464 }
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: postgres-password } }
+            - name: DATABASE_URL
+              value: postgresql://{{ .Values.postgres.user }}:$(POSTGRES_PASSWORD)@{{ include "pixelwar.postgresHost" . }}:5432/{{ .Values.postgres.database }}?schema=public
+            - { name: RABBITMQ_USER, value: {{ .Values.rabbitmq.user | quote }} }
+            - name: RABBITMQ_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: rabbitmq-password } }
+            - { name: RABBITMQ_HOST, value: {{ include "pixelwar.rabbitmqHost" . | quote }} }
+            - { name: RABBITMQ_PORT, value: "5672" }
+            - { name: RATE_LIMIT, value: {{ .Values.backend.rateLimit | quote }} }
+            - name: ADMIN_USERS
+              valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: admin-users, optional: true } }
+            - { name: OTEL_SERVICE_NAME, value: backend }
+            {{- with .Values.backend.otlpEndpoint }}
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # Migrations run before the server listens, so startup gets a generous budget.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources: {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-backend
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- include "pixelwar.selector" (list $ "backend") | nindent 4 }}
+spec:
+  selector:
+    {{- include "pixelwar.selector" (list $ "backend") | nindent 4 }}
+  ports:
+    - { name: http, port: 3000, targetPort: http }
+    - { name: metrics, port: 9464, targetPort: metrics }

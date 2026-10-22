@@ -1,0 +1,11 @@
+# Local cluster (kind): images built and loaded by `just k8s-images`, never pulled.
+backend:
+  image:
+    repository: localhost/pixelwar-backend
+    tag: dev
+    pullPolicy: Never
+frontend:
+  image:
+    repository: localhost/pixelwar-frontend
+    tag: dev
+    pullPolicy: Never

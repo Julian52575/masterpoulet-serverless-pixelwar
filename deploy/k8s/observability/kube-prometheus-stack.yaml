@@ -1,0 +1,125 @@
+# Prometheus, Alertmanager, Grafana, node-exporter and kube-state-metrics (cluster CPU, RAM,
+# node and pod counts), plus the operator that turns the app chart's ServiceMonitors and
+# PrometheusRule into scrape and alert configuration.
+fullnameOverride: kube-prometheus-stack
+
+# Control-plane components are not scrapeable on kind; their rules would only fire TargetDown.
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    retentionSize: 4GB
+    # Tempo's metrics generator pushes service-graph metrics here.
+    enableRemoteWriteReceiver: true
+    enableFeatures: [exemplar-storage]
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { memory: 1536Mi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: { requests: { storage: 5Gi } }
+
+alertmanager:
+  config:
+    route:
+      receiver: local-sink
+      group_by: [alertname, namespace, component]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # Watchdog fires constantly by design (dead man's switch); keep it out of the sink.
+        - receiver: "null"
+          matchers: ['alertname = "Watchdog"']
+    receivers:
+      - name: "null"
+      # Same stand-in channel as Compose; see docs/observability.md#notifications for Discord.
+      - name: local-sink
+        webhook_configs:
+          - url: http://alert-sink.monitoring.svc:8080/alerts
+            send_resolved: true
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: { requests: { storage: 1Gi } }
+
+grafana:
+  admin:
+    # Created out of band: docs/kubernetes.md#secrets
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  persistence:
+    enabled: true
+    size: 1Gi
+  sidecar:
+    dashboards:
+      # The app chart ships its dashboard in its own namespace.
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.monitoring.svc:3100
+      jsonData:
+        derivedFields:
+          - name: trace_id
+            matcherRegex: '"trace_id":"(\w+)"'
+            url: "$${__value.raw}"
+            datasourceUid: tempo
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      url: http://tempo.monitoring.svc:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          filterByTraceID: true
+          spanStartTimeShift: -5m
+          spanEndTimeShift: 5m
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+
+# Stand-in notification channel, as in Compose: logs each webhook call (visible in Loki).
+extraManifests:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: alert-sink
+      labels: { app.kubernetes.io/name: alert-sink }
+    spec:
+      replicas: 1
+      selector:
+        matchLabels: { app.kubernetes.io/name: alert-sink }
+      template:
+        metadata:
+          labels: { app.kubernetes.io/name: alert-sink }
+        spec:
+          containers:
+            - name: alert-sink
+              image: docker.io/mendhak/http-https-echo:42
+              env:
+                - { name: HTTP_PORT, value: "8080" }
+              ports:
+                - { name: http, containerPort: 8080 }
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { memory: 64Mi }
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: alert-sink
+    spec:
+      selector: { app.kubernetes.io/name: alert-sink }
+      ports:
+        - { name: http, port: 8080, targetPort: http }

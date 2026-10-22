@@ -1,0 +1,65 @@
+{{- if .Values.rabbitmq.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-rabbitmq
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- include "pixelwar.selector" (list $ "rabbitmq") | nindent 4 }}
+spec:
+  serviceName: {{ .Release.Name }}-rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "pixelwar.selector" (list $ "rabbitmq") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pixelwar.selector" (list $ "rabbitmq") | nindent 8 }}
+    spec:
+      # RabbitMQ names its node and data directory after the hostname; the StatefulSet keeps it stable.
+      containers:
+        - name: rabbitmq
+          image: {{ .Values.rabbitmq.image }}
+          ports:
+            - { name: amqp, containerPort: 5672 }
+            - { name: management, containerPort: 15672 }
+            - { name: metrics, containerPort: 15692 }
+          env:
+            - { name: RABBITMQ_DEFAULT_USER, value: {{ .Values.rabbitmq.user | quote }} }
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: rabbitmq-password } }
+          readinessProbe:
+            exec: { command: [rabbitmq-diagnostics, -q, check_running] }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources: {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/rabbitmq }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.rabbitmq.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-rabbitmq
+  labels:
+    {{- include "pixelwar.labels" . | nindent 4 }}
+    {{- include "pixelwar.selector" (list $ "rabbitmq") | nindent 4 }}
+spec:
+  selector:
+    {{- include "pixelwar.selector" (list $ "rabbitmq") | nindent 4 }}
+  ports:
+    - { name: amqp, port: 5672, targetPort: amqp }
+    - { name: management, port: 15672, targetPort: management }
+    - { name: metrics, port: 15692, targetPort: metrics }
+{{- end }}

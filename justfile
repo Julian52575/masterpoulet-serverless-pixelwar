@@ -102,6 +102,87 @@ attach service:
 _cid service:
     @{{tool}} ps -q --filter "label=com.docker.compose.project.working_dir={{justfile_directory()}}" --filter "label=com.docker.compose.service={{service}}" | head -n1
 
+#### Kubernetes (docs/kubernetes.md)
+
+kind_cluster := "pixelwar"
+
+# Create the local kind cluster (`KIND_EXPERIMENTAL_PROVIDER=podman` is set when podman is the tool)
+k8s-cluster:
+    {{ if tool == "podman" { "KIND_EXPERIMENTAL_PROVIDER=podman " } else { "" } }}kind create cluster --config deploy/k8s/kind.yaml
+
+# Delete the local kind cluster and all its data
+k8s-cluster-delete:
+    {{ if tool == "podman" { "KIND_EXPERIMENTAL_PROVIDER=podman " } else { "" } }}kind delete cluster --name {{kind_cluster}}
+
+# Build the production images and load them into kind (tag `dev`, used by values-local.yaml)
+k8s-images:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KIND_EXPERIMENTAL_PROVIDER={{ if tool == "podman" { "podman" } else { "" } }}
+    for svc in backend frontend; do
+        {{tool}} build -t localhost/pixelwar-$svc:dev $svc
+        archive="$(mktemp)"; {{tool}} save -o "$archive" localhost/pixelwar-$svc:dev
+        kind load image-archive "$archive" --name {{kind_cluster}}; rm -f "$archive"
+    done
+
+# Create the secrets the charts reference, with random passwords (never stored in Git)
+k8s-secrets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for ns in pixelwar monitoring; do kubectl create namespace $ns --dry-run=client -o yaml | kubectl apply -f -; done
+    kubectl -n pixelwar get secret pixelwar-secrets >/dev/null 2>&1 || kubectl -n pixelwar create secret generic pixelwar-secrets \
+        --from-literal=postgres-password="$(openssl rand -hex 16)" \
+        --from-literal=rabbitmq-password="$(openssl rand -hex 16)" \
+        --from-literal=admin-users="${ADMIN_USERS:-}"
+    kubectl -n monitoring get secret grafana-admin >/dev/null 2>&1 || kubectl -n monitoring create secret generic grafana-admin \
+        --from-literal=admin-user=admin --from-literal=admin-password="$(openssl rand -hex 12)"
+    echo "Grafana password: kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d"
+
+# Install or upgrade the observability stack and Traefik (order matters: CRDs first)
+k8s-observability:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source deploy/k8s/observability/versions.env
+    v=deploy/k8s/observability
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
+    helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
+    helm repo add traefik https://traefik.github.io/charts >/dev/null
+    helm repo update >/dev/null
+    helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack --version "$KPS_VERSION" -n monitoring --create-namespace -f $v/kube-prometheus-stack.yaml --wait --timeout 10m
+    helm upgrade --install loki grafana/loki --version "$LOKI_VERSION" -n monitoring -f $v/loki.yaml --wait --timeout 10m
+    helm upgrade --install tempo grafana/tempo --version "$TEMPO_VERSION" -n monitoring -f $v/tempo.yaml --wait
+    helm upgrade --install alloy grafana/alloy --version "$ALLOY_VERSION" -n monitoring -f $v/alloy.yaml --wait
+    helm upgrade --install traefik traefik/traefik --version "$TRAEFIK_VERSION" -n traefik --create-namespace -f $v/traefik.yaml --wait
+
+# Install or upgrade the app: `just k8s-app` (local images) or `just k8s-app -f other-values.yaml`
+k8s-app *args:
+    helm upgrade --install pixelwar charts/pixelwar -n pixelwar --create-namespace -f deploy/k8s/pixelwar/values-local.yaml --wait --timeout 5m {{args}}
+
+# Everything, from nothing to a running app with observability
+k8s-up: k8s-cluster k8s-secrets k8s-observability k8s-images k8s-app
+
+# Offline checks: lint and render the app chart, then validate the manifests against the API schemas
+k8s-validate:
+    helm lint charts/pixelwar -f deploy/k8s/pixelwar/values-local.yaml
+    helm template pixelwar charts/pixelwar -f deploy/k8s/pixelwar/values-local.yaml \
+      | kubeconform -strict -summary -ignore-missing-schemas \
+          -schema-location default \
+          -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{"{{"}}.Group{{"}}"}}/{{"{{"}}.ResourceKind{{"}}"}}_{{"{{"}}.ResourceAPIVersion{{"}}"}}.json'
+
+# Forward the app (8000), Grafana (3001), Prometheus (9090) and Alertmanager (9093) to localhost
+k8s-forward:
+    #!/usr/bin/env bash
+    trap 'kill 0' EXIT
+    kubectl -n traefik port-forward svc/traefik 8000:80 &
+    kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3001:80 &
+    kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090 &
+    kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093:9093 &
+    wait
+
+# Remove the app (keeps PVCs; delete them with `kubectl -n pixelwar delete pvc --all`)
+k8s-app-uninstall:
+    helm uninstall pixelwar -n pixelwar
+
 #### GitNexus
 
 # Re-index with GitNexus and regenerate docs/gitnexus/api-links.md (CI fails when it is stale)

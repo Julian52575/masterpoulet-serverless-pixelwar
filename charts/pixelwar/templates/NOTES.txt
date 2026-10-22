@@ -1,0 +1,6 @@
+Pixelwar {{ .Chart.AppVersion }} installed in namespace {{ .Release.Namespace }}.
+
+App:      kubectl -n traefik port-forward svc/traefik 8000:80   ->  http://localhost:8000
+Grafana:  kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3001:80
+
+See docs/kubernetes.md for the full walkthrough.

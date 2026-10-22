@@ -1,7 +1,8 @@
 const amqp = require("amqplib");
 const { WebSocketServer, WebSocket } = require("ws");
 
-const QUEUE = "pixelwar.commands";
+const COMMANDS = "pixelwar.commands";
+const EVENTS = "pixelwar.events";
 
 function broadcast(wss, message) {
   for (const client of wss.clients) {
@@ -21,18 +22,28 @@ async function connectWithRetry(url, attempts = 10) {
   }
 }
 
-// API -> queue -> worker (`handle`) -> every /ws client.
+// API -> command queue -> worker (`handle`) -> events exchange -> every instance's /ws clients.
+// Commands are shared between instances; events are fanned out so every client sees them.
 async function initEvents({ server, url, handle }) {
   const wss = new WebSocketServer({ server, path: "/ws" });
   const conn = await connectWithRetry(url);
   const channel = await conn.createChannel();
-  await channel.assertQueue(QUEUE);
-  await channel.consume(QUEUE, async (msg) => {
+
+  await channel.assertExchange(EVENTS, "fanout", { durable: false });
+  const { queue } = await channel.assertQueue("", { exclusive: true });
+  await channel.bindQueue(queue, EVENTS, "");
+  await channel.consume(queue, (msg) => msg && broadcast(wss, msg.content.toString()), {
+    noAck: true,
+  });
+
+  await channel.assertQueue(COMMANDS);
+  await channel.prefetch(16);
+  await channel.consume(COMMANDS, async (msg) => {
     if (!msg) return;
     try {
       const { type, payload } = JSON.parse(msg.content.toString());
       const event = await handle(type, payload);
-      if (event) broadcast(wss, JSON.stringify(event));
+      if (event) channel.publish(EVENTS, "", Buffer.from(JSON.stringify(event)));
       channel.ack(msg);
     } catch (err) {
       console.error("backend: worker failed", err);
@@ -41,7 +52,7 @@ async function initEvents({ server, url, handle }) {
   });
 
   const publish = async (type, payload) => {
-    channel.sendToQueue(QUEUE, Buffer.from(JSON.stringify({ type, payload })));
+    channel.sendToQueue(COMMANDS, Buffer.from(JSON.stringify({ type, payload })));
   };
   return { publish, close: () => conn.close() };
 }

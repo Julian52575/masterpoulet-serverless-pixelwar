@@ -61,8 +61,8 @@ browser ──► proxy (Traefik :8000) ──┬─ /           ──► front
 | Service | Role | Link to others |
 |---|---|---|
 | `proxy` | Traefik reverse proxy; dashboard on `:8080` (dev only, no auth) | Reads `traefik.*` labels from the other containers via the Podman/Docker socket and routes to them |
-| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority). Calls `/api/items` and listens on `/ws` |
-| `backend` | Express API: `GET`/`POST /items`, `/health`, WebSocket on `/ws` | Routed on `/api` (prefix stripped by Traefik) and `/ws`. Stores items in `db`, publishes `item.created` to `rabbitmq`, then consumes it to push to WebSocket clients |
+| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority). Loads `/api/tiles/*`, draws through `/api/pixels` and `/api/brush`, and applies live deltas from `/ws` |
+| `backend` | Express API (proxy) + worker: tiles, pixels, brush, PNG export, snapshots, `/admin/*`, WebSocket on `/ws` | Routed on `/api` (prefix stripped by Traefik) and `/ws`. The API validates, checks pause and quota (shared state in `db`), and queues commands on `rabbitmq`; the worker writes `db` and publishes events to a fanout exchange that every instance relays to its WebSocket clients |
 | `db` | Postgres 16 | Used by `backend` through Prisma; migrations run on container start |
 | `rabbitmq` | Message broker; management UI on `:15672` | Used by `backend` |
 

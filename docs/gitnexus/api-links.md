@@ -22,5 +22,6 @@ see. Consumers are matched by URL, so they apply to every method on the row.
 | /health | backend/src/app.js | GET |  |
 | /pixels | backend/src/app.js | POST |  |
 | /pixels/:x/:y | backend/src/app.js | GET |  |
-| /snapshot.png | backend/src/app.js | GET |  |
+| /snapshots | backend/src/app.js | POST |  |
+| /snapshots/:name | backend/src/app.js | GET |  |
 | /tiles/:tx/:ty | backend/src/app.js | GET |  |

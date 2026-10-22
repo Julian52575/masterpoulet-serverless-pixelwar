@@ -12,6 +12,8 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixels = useRef(new Map<string, Pixel>())
   const tiles = useRef(new Set<string>())
+  const drawRef = useRef<() => void>(() => {})
+  const [reload, setReload] = useState(0)
   const drag = useRef<{ sx: number; sy: number; moved: boolean } | null>(null)
   const [size, setSize] = useState(DEFAULT_SIZE)
   const [tile, setTile] = useState(DEFAULT_TILE)
@@ -42,6 +44,10 @@ export default function App() {
     }
   }, [view, size])
 
+  useEffect(() => {
+    drawRef.current = draw
+  }, [draw])
+
   // Tiles are fetched once each; live deltas arrive over the WebSocket.
   useEffect(() => {
     const canvas = canvasRef.current
@@ -66,7 +72,7 @@ export default function App() {
           .catch(() => tiles.current.delete(key))
       }
     }
-  }, [view, draw, size, tile])
+  }, [view, draw, size, tile, reload])
 
   useEffect(() => {
     fetch('/api/config')
@@ -79,19 +85,45 @@ export default function App() {
         setPaused(c.paused)
       })
       .catch(() => {})
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${proto}://${location.host}/ws`)
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data)
-      if (msg.type === 'pixels.updated') {
-        for (const p of msg.payload as Pixel[]) pixels.current.set(`${p.x},${p.y}`, p)
-      } else if (msg.type === 'canvas.cleared') {
-        pixels.current.clear()
-      } else return
-      draw()
+  }, [])
+
+  // One socket for the page's lifetime: `draw` changes on every pan/zoom, so it is read via a ref.
+  // After a reconnect, deltas may have been missed, so the cached tiles are dropped and refetched.
+  useEffect(() => {
+    let ws: WebSocket | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let closed = false
+    let reconnected = false
+    const connect = () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${proto}://${location.host}/ws`)
+      ws.onopen = () => {
+        if (!reconnected) return
+        tiles.current.clear()
+        setReload((n) => n + 1)
+      }
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'pixels.updated') {
+          for (const p of msg.payload as Pixel[]) pixels.current.set(`${p.x},${p.y}`, p)
+        } else if (msg.type === 'canvas.cleared') {
+          pixels.current.clear()
+        } else return
+        drawRef.current()
+      }
+      ws.onclose = () => {
+        if (closed) return
+        reconnected = true
+        timer = setTimeout(connect, 1000)
+      }
     }
-    return () => ws.close()
-  }, [draw])
+    connect()
+    return () => {
+      closed = true
+      clearTimeout(timer)
+      ws?.close()
+    }
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current

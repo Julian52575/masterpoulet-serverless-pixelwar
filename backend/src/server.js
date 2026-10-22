@@ -27,12 +27,14 @@ async function main() {
   );
   server.listen(port, () => console.log(`backend: listening on port ${port}`));
 
-  const shutdown = () =>
+  const shutdown = async () => {
+    await events.close().catch(() => {});
     server.close(async () => {
-      await events.close().catch(() => {});
       await db.$disconnect();
       process.exit();
     });
+    server.closeAllConnections();
+  };
   for (const sig of ["SIGINT", "SIGTERM", "SIGUSR2"]) process.on(sig, shutdown);
 }
 

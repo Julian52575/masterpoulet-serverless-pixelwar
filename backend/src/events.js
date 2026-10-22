@@ -1,7 +1,8 @@
 const amqp = require("amqplib");
 const { WebSocketServer, WebSocket } = require("ws");
 
-const COMMANDS = "pixelwar.commands";
+// Renamed from "pixelwar.commands": a queue's arguments cannot change once declared.
+const COMMANDS = "pixelwar.commands.fifo";
 const EVENTS = "pixelwar.events";
 
 function broadcast(wss, message) {
@@ -49,8 +50,10 @@ async function initEvents({ server, url, handle }) {
     await ch.bindQueue(queue, EVENTS, "");
     await ch.consume(queue, (msg) => msg && broadcast(wss, msg.content.toString()), { noAck: true });
 
-    await ch.assertQueue(COMMANDS);
-    await ch.prefetch(16);
+    // First in, first served: one consumer across all instances, one unacked command at a time,
+    // and the event is published before the ack, so events leave in command order.
+    await ch.assertQueue(COMMANDS, { arguments: { "x-single-active-consumer": true } });
+    await ch.prefetch(1);
     await ch.consume(COMMANDS, async (msg) => {
       if (!msg) return;
       try {
@@ -77,8 +80,11 @@ async function initEvents({ server, url, handle }) {
     if (!channel) throw new Error("broker unavailable");
     channel.sendToQueue(COMMANDS, Buffer.from(JSON.stringify({ type, payload })));
   };
+  // Open WebSockets would otherwise keep server.close() waiting forever.
   const close = async () => {
     closing = true;
+    for (const client of wss.clients) client.terminate();
+    wss.close();
     await conn.close();
   };
   return { publish, close };

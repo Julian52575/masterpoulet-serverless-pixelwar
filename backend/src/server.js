@@ -15,6 +15,7 @@ async function main() {
   server.on("request", createApp({
     db,
     publish: events.publish,
+    defaultLimit: Number(process.env.RATE_LIMIT ?? 20),
     admins: (process.env.ADMIN_USERS || "").split(",").filter(Boolean),
   }));
   server.listen(port, () => console.log(`backend: listening on port ${port}`));

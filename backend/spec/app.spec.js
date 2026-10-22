@@ -76,6 +76,13 @@ describe("rate limit and admin", () => {
     expect((await request(app).post("/pixels").send(px)).status).toBe(202);
   });
 
+  it("does not limit when the default is 0", async () => {
+    const { app } = setup({ defaultLimit: 0 });
+    for (let i = 0; i < 3; i++) {
+      expect((await request(app).post("/brush").send({ ...px, size: 16 })).status).toBe(202);
+    }
+  });
+
   it("refuses admin routes to normal users", async () => {
     const { app } = setup();
     expect((await request(app).post("/admin/pause").set("x-user", "bob")).status).toBe(403);

@@ -36,7 +36,10 @@ function createApp({ db, publish, admins = [], defaultLimit = 20, now = Date.now
   const consume = (user, cost) => {
     const t = now();
     const recent = (hits.get(user) || []).filter((h) => t - h < 60000);
-    const granted = Math.max(0, Math.min(cost, (overrides.get(user) ?? defaultLimit) - recent.length));
+    const limit = overrides.get(user) ?? defaultLimit;
+    // A default of 0 disables limiting (dev); an explicit per-user override of 0 still blocks.
+    if (limit === 0 && !overrides.has(user)) return cost;
+    const granted = Math.max(0, Math.min(cost, limit - recent.length));
     for (let i = 0; i < granted; i++) recent.push(t);
     hits.set(user, recent);
     return granted;

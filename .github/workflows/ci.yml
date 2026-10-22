@@ -411,9 +411,10 @@ jobs:
 
           echo '--- backend'
           expect 'GET /api/health' 200 "$PROXY/api/health"
-          expect 'POST /api/items' 201 \
-            -H 'Content-Type: application/json' -d '{"title":"ci"}' "$PROXY/api/items"
-          expect 'GET /api/items' 200 "$PROXY/api/items"
+          expect 'POST /api/pixels' 201 \
+            -H 'Content-Type: application/json' \
+            -d '{"x":1,"y":1,"color":"#ff0000","author":"ci"}' "$PROXY/api/pixels"
+          expect 'GET /api/pixels' 200 "$PROXY/api/pixels?x=0&y=0&w=10&h=10"
 
           echo '--- frontend'
           expect 'GET /' 200 -H 'Accept: text/html' "$PROXY/"

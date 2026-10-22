@@ -118,11 +118,17 @@ k8s-cluster-delete:
 k8s-images:
     #!/usr/bin/env bash
     set -euo pipefail
-    export KIND_EXPERIMENTAL_PROVIDER={{ if tool == "podman" { "podman" } else { "" } }}
     for svc in backend frontend; do
-        {{tool}} build -t localhost/pixelwar-$svc:dev $svc
-        archive="$(mktemp)"; {{tool}} save -o "$archive" localhost/pixelwar-$svc:dev
-        kind load image-archive "$archive" --name {{kind_cluster}}; rm -f "$archive"
+        img=localhost/pixelwar-$svc:dev
+        {{tool}} build -t $img $svc
+        # `kind load` cannot unpack podman archives (no platform metadata); import into containerd directly.
+        if [ "{{tool}}" = podman ]; then
+            for node in $(KIND_EXPERIMENTAL_PROVIDER=podman kind get nodes --name {{kind_cluster}}); do
+                podman save $img | podman exec -i "$node" ctr -n k8s.io images import -
+            done
+        else
+            kind load docker-image $img --name {{kind_cluster}}
+        fi
     done
 
 # Create the secrets the charts reference, with random passwords (never stored in Git)

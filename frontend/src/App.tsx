@@ -5,13 +5,19 @@ type Pixel = { x: number; y: number; color: string; author: string; updatedAt?: 
 const MIN_SCALE = 1
 const MAX_SCALE = 64
 const DEFAULT_SIZE = 10000
+const DEFAULT_TILE = 256
 const PALETTE = ['#000000', '#ffffff', '#e50000', '#ff9900', '#ffe600', '#02be01', '#0083c7', '#820080']
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixels = useRef(new Map<string, Pixel>())
+  const tiles = useRef(new Set<string>())
   const drag = useRef<{ sx: number; sy: number; moved: boolean } | null>(null)
   const [size, setSize] = useState(DEFAULT_SIZE)
+  const [tile, setTile] = useState(DEFAULT_TILE)
+  const [maxBrush, setMaxBrush] = useState(16)
+  const [brush, setBrush] = useState(1)
+  const [paused, setPaused] = useState(false)
   const [view, setView] = useState({ x: 0, y: 0, scale: 8 })
   const [color, setColor] = useState(PALETTE[2])
   const [author, setAuthor] = useState('anonymous')
@@ -30,35 +36,52 @@ export default function App() {
     }
   }, [view])
 
-  // Only the visible rectangle is fetched; WebSocket events keep it current.
+  // Tiles are fetched once each; live deltas arrive over the WebSocket.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const w = Math.min(512, Math.ceil(canvas.width / view.scale) + 1)
-    const h = Math.min(512, Math.ceil(canvas.height / view.scale) + 1)
-    const x = Math.max(0, Math.floor(view.x))
-    const y = Math.max(0, Math.floor(view.y))
-    fetch(`/api/pixels?x=${x}&y=${y}&w=${w}&h=${h}`)
-      .then((r) => r.json())
-      .then((list: Pixel[]) => {
-        if (!Array.isArray(list)) return
-        for (const p of list) pixels.current.set(`${p.x},${p.y}`, p)
-        draw()
-      })
-      .catch(() => {})
-  }, [view, draw])
+    const x0 = Math.floor(view.x / tile)
+    const y0 = Math.floor(view.y / tile)
+    const x1 = Math.floor((view.x + canvas.width / view.scale) / tile)
+    const y1 = Math.floor((view.y + canvas.height / view.scale) / tile)
+    const last = Math.ceil(size / tile) - 1
+    for (let ty = Math.max(0, y0); ty <= Math.min(last, y1); ty++) {
+      for (let tx = Math.max(0, x0); tx <= Math.min(last, x1); tx++) {
+        const key = `${tx},${ty}`
+        if (tiles.current.has(key)) continue
+        tiles.current.add(key)
+        fetch(`/api/tiles/${tx}/${ty}`)
+          .then((r) => r.json())
+          .then((list: Pixel[]) => {
+            if (!Array.isArray(list)) return
+            for (const p of list) pixels.current.set(`${p.x},${p.y}`, p)
+            draw()
+          })
+          .catch(() => tiles.current.delete(key))
+      }
+    }
+  }, [view, draw, size, tile])
 
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json())
-      .then((c) => c?.size && setSize(c.size))
+      .then((c) => {
+        if (!c?.size) return
+        setSize(c.size)
+        setTile(c.tile)
+        setMaxBrush(c.maxBrush)
+        setPaused(c.paused)
+      })
       .catch(() => {})
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${location.host}/ws`)
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data)
-      if (msg.type !== 'pixel.updated') return
-      pixels.current.set(`${msg.payload.x},${msg.payload.y}`, msg.payload)
+      if (msg.type === 'pixels.updated') {
+        for (const p of msg.payload as Pixel[]) pixels.current.set(`${p.x},${p.y}`, p)
+      } else if (msg.type === 'canvas.cleared') {
+        pixels.current.clear()
+      } else return
       draw()
     }
     return () => ws.close()
@@ -114,12 +137,17 @@ export default function App() {
       return
     }
     setError('')
-    const res = await fetch('/api/pixels', {
+    const res = await fetch(brush > 1 ? '/api/brush' : '/api/pixels', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ x, y, color, author }),
+      body: JSON.stringify({ x, y, color, author, size: brush }),
     })
-    if (!res.ok) setError(res.status === 429 ? 'Slow down: rate limited' : 'Could not draw')
+    setPaused(res.status === 423)
+    if (!res.ok) {
+      setError(
+        res.status === 429 ? 'Slow down: rate limited' : res.status === 423 ? 'Drawing is paused' : 'Could not draw',
+      )
+    }
   }
 
   return (
@@ -135,6 +163,21 @@ export default function App() {
             style={{ background: c, width: 24, height: 24, border: c === color ? '3px solid #888' : '1px solid #ccc' }}
           />
         ))}
+        <label>
+          Brush
+          <input
+            type="number"
+            min={1}
+            max={maxBrush}
+            value={brush}
+            onChange={(e) => setBrush(Math.min(maxBrush, Math.max(1, Number(e.target.value) || 1)))}
+            style={{ width: 48 }}
+          />
+        </label>
+        <a href="/api/snapshot.png?w=1024&h=1024" download>
+          Snapshot
+        </a>
+        {paused && <strong>Paused</strong>}
         <span>
           ({Math.floor(view.x)}, {Math.floor(view.y)}) x{view.scale.toFixed(1)} · shift+click to inspect
         </span>

@@ -1,7 +1,7 @@
 const amqp = require("amqplib");
 const { WebSocketServer, WebSocket } = require("ws");
 
-const QUEUE = "pixel.updated";
+const QUEUE = "pixelwar.commands";
 
 function broadcast(wss, message) {
   for (const client of wss.clients) {
@@ -21,16 +21,23 @@ async function connectWithRetry(url, attempts = 10) {
   }
 }
 
-// Pixels are published to RabbitMQ and consumed here to fan out over /ws.
-async function initEvents({ server, url }) {
+// API -> queue -> worker (`handle`) -> every /ws client.
+async function initEvents({ server, url, handle }) {
   const wss = new WebSocketServer({ server, path: "/ws" });
   const conn = await connectWithRetry(url);
   const channel = await conn.createChannel();
   await channel.assertQueue(QUEUE);
-  await channel.consume(QUEUE, (msg) => {
+  await channel.consume(QUEUE, async (msg) => {
     if (!msg) return;
-    broadcast(wss, msg.content.toString());
-    channel.ack(msg);
+    try {
+      const { type, payload } = JSON.parse(msg.content.toString());
+      const event = await handle(type, payload);
+      if (event) broadcast(wss, JSON.stringify(event));
+      channel.ack(msg);
+    } catch (err) {
+      console.error("backend: worker failed", err);
+      channel.nack(msg, false, false);
+    }
   });
 
   const publish = async (type, payload) => {

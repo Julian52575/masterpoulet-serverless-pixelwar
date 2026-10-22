@@ -1,0 +1,19 @@
+# Files GitNexus (https://github.com/abhigyanpatwari/GitNexus) should not index,
+# on top of everything in .gitignore. Same syntax as .gitignore.
+#
+# Removing a line here can change docs/gitnexus/api-links.md: run
+# `just gitnexus-docs-generate` afterwards and commit the result.
+
+# Generated from the index itself -- indexing it would feed the output back in.
+docs/gitnexus/
+
+# Stale .jsx duplicates of App.tsx / main.tsx (Vite resolves the .tsx first,
+# see frontend/vite.config.js). Indexed, they duplicate App/main symbols.
+frontend/src/App.jsx
+frontend/src/main.jsx
+
+# Applied migration history; prisma/schema.prisma is the current model.
+**/prisma/migrations/
+
+# Written by the openssf-scorecard workflow.
+SCORECARD.md

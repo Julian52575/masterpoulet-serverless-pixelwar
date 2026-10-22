@@ -1,0 +1,32 @@
+# Keep image build contexts small. Symlinked to .dockerignore for tools
+# that only look for that name.
+.git
+.github
+.direnv
+.containers
+.env
+.env.example
+*.md
+LICENSE
+
+node_modules
+Dockerfile
+.containerignore
+.dockerignore
+.gitignore
+.envrc
+
+# Not part of the app -- tests, tooling and repo assets
+image.png
+.claude
+
+# Template files that won't be used by the containers
+.config
+.githooks
+scripts
+web
+api
+flake.nix
+flake.lock
+justfile
+docker-compose.yml

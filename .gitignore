@@ -1,0 +1,53 @@
+# --- rootless Podman (see flake.nix) ---------------------------------
+# Per-machine container storage and the storage.conf generated for it on
+# every shell entry. containers.conf / registries.conf / policy.json under
+# .config/podman/ ARE tracked -- they're real project config.
+/.containers/
+.config/podman/storage.conf
+
+# --- local environment ----------------------------------------------
+.env
+
+# --- node / frontend build output ------------------------------------
+node_modules/
+dist/
+backend/generated/
+
+# --- python (.github/scripts/*.py) ------------------------------------
+__pycache__/
+
+# --- test coverage --------------------------------------------------
+coverage/
+
+# --- ci: npm audit output (uploaded as an artifact, never committed) -----
+/dependency-audit/
+
+# --- direnv -------------------------------------------------------
+.direnv/
+
+# --- nix --------------------------------------------------------
+result
+result-*
+
+.claude
+.vscode
+
+# --- database dump ----------------------------------------------
+db_backup_*.sql
+*.db
+
+
+node_modules/
+
+# --- SAST ------------------------------------------------------
+# Scanner scratch. The kept record is .sast/report/ (tracked, refreshed by CI).
+/.scannerwork/
+/.sast/codeql-db/
+/.sast/codeql-results/
+
+# Kubernetes package
+deployment/.k3s/
+deployment/k3s.yaml
+deployment/helm/*/charts/*.tgz
+google-cloud-sdk
+google-cloud-cli-linux-x86_64.tar.gz

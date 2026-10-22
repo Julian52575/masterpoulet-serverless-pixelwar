@@ -1,0 +1,54 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/server.js",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "lint": "oxlint"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "amqplib": "^2.0.1",
+    "express": "^5.2.1",
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "jest": "^30.5.2",
+    "oxlint": "^1.86.0",
+    "prisma": "^6.5.0",
+    "supertest": "^7.2.2"
+  },
+  "jest": {
+    "testMatch": [
+      "<rootDir>/spec/**/*.spec.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/server.js"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text",
+      "text-summary",
+      "lcov",
+      [
+        "text",
+        {
+          "file": "coverage.txt"
+        }
+      ]
+    ]
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2",
+    "js-yaml": "^4.1.1"
+  }
+}

@@ -1,0 +1,58 @@
+name: R&D
+description: A research spike or open design question to resolve before committing to build work
+title: "[R&D] "
+labels: ["research", "needs-triage"]
+body:
+  - type: checkboxes
+    attributes:
+      label: Pre-submit
+      options:
+        - label: I searched open and closed issues and this is not a duplicate
+          required: true
+
+  - type: input
+    attributes:
+      label: ADR discussion
+      description: "Link to the Architecture Decision Record discussion this issue relates to."
+      placeholder: https://github.com/Julian52575/serverless-pixelwar/discussions/...
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Question or hypothesis
+      description: What do we need to find out, and why does it matter now?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Definition of done
+      description: What settles this -- a decision, a benchmark number, a written recommendation, a throwaway prototype?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Context and constraints
+      description: Prior work, links to related issues, anything that bounds the search.
+    validations:
+      required: false
+
+  - type: dropdown
+    attributes:
+      label: Rough scope
+      description: Best guess to help triage.
+      options:
+        - Tiny -- minutes
+        - Small -- hours
+        - Medium -- days
+        - Large -- weeks, needs breaking down
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        💡 A link to an "Accepted" [Architecture Decision Records discussion](https://github.com/Julian52575/serverless-pixelwar/discussions/categories/architecture-decision-records?discussions_q=) should be provided for the issue to be started working on. You are free to create a placeholder issue without this link.

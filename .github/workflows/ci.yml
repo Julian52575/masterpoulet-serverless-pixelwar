@@ -1,0 +1,534 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/*"
+      - ".github/rulesets"
+      - ".sast/report/**" # ci-sast's own report commits (also carry [skip ci])
+  pull_request:
+  workflow_dispatch: # allow a manual re-run from the Actions tab
+
+
+# Least privilege: this workflow only needs to read the repo contents.
+permissions:
+  contents: read
+
+# Cancel superseded runs for the same PR (or branch). Runs on `main` are left
+# alone -- we want every push to `main` to complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Level 1 -- independent checks, all scheduled in parallel.
+  # ---------------------------------------------------------------------------
+
+  devshell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PODMAN_NO_SOCKET: "1" # don't spawn a Podman API socket in CI
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # No git writes in this job; do not leave the token in .git/config.
+          persist-credentials: false
+
+      # Local composite action: check out first, then it installs Nix.
+      # `nix flake check` below already evaluates the flake, so skip the warm.
+      - uses: ./.github/actions/setup-devshell
+        with:
+          warm: "false"
+
+      - name: Check the flake evaluates
+        run: nix flake check --no-build
+
+      - name: Enter the dev shell and sanity-check tooling
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            just --list
+            podman --version
+            podman-compose -f docker-compose.yml config >/dev/null
+          '
+
+  # Unit tests only; the running API is exercised by `stack` (level 2).
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          {
+            echo '### Backend jest coverage'
+            echo '```'
+            cat coverage/coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-coverage
+          path: backend/coverage
+          if-no-files-found: warn
+
+  # Runs alongside `backend` (no `needs` between them = parallel scheduling).
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Serve the build and check it responds
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 &
+          trap 'kill $!' EXIT
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:4173/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo "frontend did not respond on :4173 in time" >&2
+          exit 1
+
+  # Every Dockerfile / Containerfile tracked in the repo -- a new one is
+  # picked up without touching this workflow. Mounts the repo so hadolint
+  # reads a root .hadolint.yaml if one exists.
+  dockerfile-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Lint every Dockerfile with hadolint
+        run: |
+          set -uo pipefail
+          mapfile -t files < <(git ls-files -- \
+            '*Dockerfile' '*Dockerfile.*' '*Containerfile' '*Containerfile.*')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no Dockerfile found"
+            exit 0
+          fi
+
+          failed=0
+          for f in "${files[@]}"; do
+            echo "--- $f"
+            if docker run --rm -v "$PWD:/repo:ro" -w /repo \
+              docker.io/hadolint/hadolint:v2.12.0 hadolint "$f"; then
+              echo "ok    $f"
+            else
+              echo "::error file=$f::hadolint reported issues in $f"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+  # The compose file parses and interpolates cleanly with the example .env.
+  compose-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Load .env
+        run: cp .env.example .env
+
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
+  # Every workflow actionlint finds under .github/workflows -- a new one is
+  # picked up without touching this workflow -- including the shellcheck pass
+  # on each `run:` script (bundled in the actionlint image).
+  workflow-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Lint with actionlint
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro" -w /repo
+          docker.io/rhysd/actionlint:1.7.12
+          -color
+
+  # Audits THIS branch's lockfile, one workspace per matrix leg, against the
+  # GitHub Advisory Database with `npm audit` -- the same advisory data
+  # Dependabot uses, resolved from the pull-request branch's own
+  # package-lock.json rather than from `main` (all the Dependabot alerts API can
+  # report on). Software-composition analysis, not SAST, so it lives here and
+  # not in ci-sast.yml.
+  #
+  # Gate (per workspace): fails on any Critical or High advisory, or on 5 or
+  # more Moderate+Low. Also fails if `npm audit` cannot be completed -- an
+  # unknown posture is not a passing one. The counts and every advisory land
+  # in the job summary, and the raw report uploads as an artifact, pass or fail.
+  #
+  # Not a prerequisite of `stack`: a new advisory should not block the
+  # integration run, only `ci-required`.
+  dependencies-audit:
+    name: dependencies-audit (${{ matrix.workspace }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [frontend, backend]
+    env:
+      WS: ${{ matrix.workspace }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The PR branch head, not the merge ref -- the audit is purely this
+          # branch's dependency tree.
+          ref: ${{ github.head_ref || github.ref_name }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Audit the workspace lockfile
+        run: |
+          set -euo pipefail
+          mkdir -p dependency-audit
+          raw="dependency-audit/${WS}.json"
+
+          # --- collect `npm audit`, retrying transient failures ---
+          for attempt in 1 2 3; do
+            # npm audit exits non-zero when it finds advisories -- that is
+            # still a valid report, so judge the JSON body, not the status.
+            ( cd "$WS" && npm audit --json ) > "$raw" 2>/dev/null || true
+            jq -e '.metadata.vulnerabilities' "$raw" > /dev/null 2>&1 && break
+            [ "$attempt" -lt 3 ] && sleep 3 || true
+          done
+          if ! jq -e '.metadata.vulnerabilities' "$raw" > /dev/null 2>&1; then
+            echo "::error::npm audit produced no usable report for ${WS} -- an unknown posture cannot clear the gate"
+            echo '{}' > "$raw"
+            exit 1
+          fi
+
+          sev() { jq --arg k "$1" '.metadata.vulnerabilities[$k] // 0' "$raw"; }
+          crit=$(sev critical); high=$(sev high); mod=$(sev moderate); low=$(sev low)
+          ch=$((crit + high)); ml=$((mod + low))
+
+          {
+            echo "### Dependency audit: \`${WS}\` (\`npm audit\`)"
+            echo
+            echo "_This branch's \`${WS}/package-lock.json\` vs the GitHub Advisory Database. \`main\`'s posture lives in **Security → Dependabot**._"
+            echo
+            echo '| Critical | High | Moderate | Low | Total |'
+            echo '| --- | --- | --- | --- | --- |'
+            jq -r '.metadata.vulnerabilities
+              | "| \(.critical) | \(.high) | \(.moderate) | \(.low) | \(.total) |"' "$raw"
+            echo
+            echo "**Gate:** any Critical or High fails; 5 or more Moderate+Low fails. Found **${crit}** Critical, **${high}** High, **${ml}** Moderate+Low."
+            echo
+            echo '<details><summary>Advisories</summary>'
+            echo
+            echo '| Severity | Package | Direct | Fix | Advisory |'
+            echo '| --- | --- | --- | --- | --- |'
+            jq -r '
+              (.vulnerabilities // {}) | to_entries[] | .value | . as $v
+              | ([$v.via[]? | select(type == "object")]) as $adv
+              | ([$v.via[]? | select(type == "string")]) as $chain
+              | "| \($v.severity) | `\($v.name)` "
+                + "| \(if $v.isDirect then "yes" else "no" end) "
+                + "| \(if ($v.fixAvailable | type) == "object" then $v.fixAvailable.version
+                        elif $v.fixAvailable then "yes" else "no" end) "
+                + "| \(if ($adv | length) > 0
+                        then [$adv[] | "[\(.title)](\(.url))"] | join("<br>")
+                        else "via " + ($chain | join(", ")) end) |"
+            ' "$raw"
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # --- gate ---
+          rc=0
+          if [ "$ch" -gt 0 ]; then
+            echo "::error::${crit} critical + ${high} high dependency vulnerabilities found in ${WS} (allowed: 0)"
+            echo "::error::Please refer to the workflow summary for details"
+            rc=1
+          fi
+          if [ "$ml" -ge 5 ]; then
+            echo "::error::${ml} moderate + low dependency vulnerabilities found in ${WS} (allowed: fewer than 5)"
+            echo "::error::Please refer to the workflow summary for details"
+            rc=1
+          fi
+          exit "$rc"
+
+      - name: Upload the raw audit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dependency-audit-${{ matrix.workspace }}
+          path: dependency-audit
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Level 2 -- how the services work together, once every level-1 job except
+  # dependencies-audit has passed: `stack` runs the whole docker-compose stack
+  # and calls every service; `gitnexus` checks the calls between them in the
+  # code. Both jobs run in parallel.
+  # ---------------------------------------------------------------------------
+  stack:
+    needs:
+      - devshell
+      - backend
+      - frontend
+      - dockerfile-lint
+      - compose-lint
+      - workflow-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROXY: http://127.0.0.1:8000
+      DASHBOARD: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Load .env
+        run: cp .env.example .env
+
+      - name: Build the images
+        run: docker compose build
+
+      - name: Start the whole stack and wait for every healthcheck
+        run: docker compose up -d --wait --wait-timeout 300
+
+      - name: Wait for Traefik to register every router
+        run: |
+          for _ in $(seq 1 30); do
+            routers=$(curl -sf "$DASHBOARD/api/http/routers" | jq -r '.[].name' || true)
+            if grep -qx 'backend@docker' <<<"$routers" \
+              && grep -qx 'websocket@docker' <<<"$routers" \
+              && grep -qx 'frontend@docker' <<<"$routers"; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Traefik did not register the backend/websocket/frontend routers in time" >&2
+          echo "registered: ${routers:-<none>}" >&2
+          exit 1
+
+      - name: Call each service
+        run: |
+          set -uo pipefail
+          failed=0
+
+          # expect <label> <status> <curl args...>: fail the step (but keep
+          # going) when the HTTP status differs from the expected one.
+          expect() {
+            local label="$1" want="$2"; shift 2
+            local got
+            got=$(curl -s -o /dev/null -w '%{http_code}' "$@")
+            if [ "$got" = "$want" ]; then
+              echo "ok    $label -> $got"
+            else
+              echo "::error::$label: expected HTTP $want, got $got"
+              failed=1
+            fi
+          }
+
+          # run <label> <command...>: same, for a command's exit status.
+          run() {
+            local label="$1"; shift
+            if "$@" > /dev/null; then
+              echo "ok    $label"
+            else
+              echo "::error::$label failed"
+              failed=1
+            fi
+          }
+
+          echo '--- db'
+          # Single quotes on purpose: $POSTGRES_* expand inside the container.
+          # shellcheck disable=SC2016
+          run 'db accepts connections' \
+            docker compose exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+          echo '--- proxy'
+          expect 'proxy dashboard API' 200 "$DASHBOARD/api/overview"
+
+          echo '--- backend'
+          expect 'GET /api/health' 200 "$PROXY/api/health"
+          expect 'POST /api/items' 201 \
+            -H 'Content-Type: application/json' -d '{"title":"ci"}' "$PROXY/api/items"
+          expect 'GET /api/items' 200 "$PROXY/api/items"
+
+          echo '--- frontend'
+          expect 'GET /' 200 -H 'Accept: text/html' "$PROXY/"
+
+          exit "$failed"
+
+      - name: Show the stack state and logs on failure
+        if: failure()
+        run: |
+          docker compose ps --all
+          docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
+
+  # GitNexus knowledge graph of the repo (https://github.com/abhigyanpatwari/GitNexus),
+  # rebuilt from scratch through .github/scripts/gitnexus.sh. Fails on circular
+  # imports and on a stale docs/gitnexus/api-links.md, and summarises what the
+  # PR touches. Never commits the regenerated snapshot back: a push made with
+  # the workflow token does not trigger a new run, so ci-required would never
+  # report on that commit. Run `just gitnexus-docs-generate` locally instead.
+  gitnexus:
+    needs:
+      - devshell
+      - backend
+      - frontend
+      - dockerfile-lint
+      - compose-lint
+      - workflow-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Full history: `detect-changes` diffs against the PR's base branch.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Keep the GitNexus registry out of the home directory
+        run: echo "GITNEXUS_HOME_DIR=$RUNNER_TEMP/gitnexus" >> "$GITHUB_ENV"
+
+      - name: Index the repo
+        run: .github/scripts/gitnexus.sh analyze
+
+      - name: Check for circular imports
+        run: .github/scripts/gitnexus.sh check --cycles
+
+      - name: Check docs/gitnexus/api-links.md is up to date
+        run: |
+          .github/scripts/gitnexus.sh api-links
+          if [ -z "$(git status --porcelain -- docs/gitnexus/api-links.md)" ]; then
+            exit 0
+          fi
+
+          # Single quotes on purpose: the backticks are Markdown, not a command.
+          # shellcheck disable=SC2016
+          fix='Update the doc: run `just gitnexus-docs-generate` and commit docs/gitnexus/api-links.md with this PR.'
+          echo "::error file=docs/gitnexus/api-links.md,title=Update docs/gitnexus/api-links.md::The API links between frontend and backend changed but docs/gitnexus/api-links.md was not updated. ${fix}"
+          git diff -- docs/gitnexus/api-links.md
+          {
+            echo '### :x: Update docs/gitnexus/api-links.md'
+            echo
+            echo 'The API links between frontend and backend changed, but the committed doc was not updated.'
+            echo
+            echo "**${fix}**"
+            echo
+            echo 'Expected changes to the doc:'
+            echo
+            echo '```diff'
+            git diff -- docs/gitnexus/api-links.md
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      # Informational only: a large PR legitimately rates as "critical".
+      - name: Summarise the change impact
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          {
+            echo '### GitNexus change impact'
+            echo
+            echo "_Symbols and execution flows touched by this PR, compared with \`origin/${BASE_REF}\`._"
+            echo
+            echo '```'
+            .github/scripts/gitnexus.sh detect-changes --scope compare --base-ref "origin/${BASE_REF}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Single stable check for the branch ruleset to require.
+  # Add a job to `needs` here to make it mandatory to the branch ruleset.
+  # ---------------------------------------------------------------------------
+  ci-required:
+    if: always()
+    needs:
+      - devshell
+      - backend
+      - frontend
+      - dockerfile-lint
+      - compose-lint
+      - workflow-lint
+      - dependencies-audit
+      - gitnexus
+      - stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every required job passed
+        run: |
+          # `skipped` counts too: `stack` is skipped when a level-1 job fails.
+          if printf '%s\n' '${{ join(needs.*.result, ' ') }}' | grep -Eqw 'failure|cancelled|skipped'; then
+            echo "a required job did not succeed: ${{ join(needs.*.result, ', ') }}"
+            exit 1
+          fi

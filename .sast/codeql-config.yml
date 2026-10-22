@@ -1,0 +1,29 @@
+# CodeQL analysis settings for serverless-pixelwar.
+#
+# Loaded explicitly by .github/workflows/ci-sast.yml:
+#   github/codeql-action/init ... with: config-file: .sast/codeql-config.yml
+#
+# Full parameter reference:
+#   https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning
+name: "serverless-pixelwar CodeQL"
+
+# --- What to analyse -----------------------------------------------------
+# Mirror .sast/sonar-project.properties' sonar.sources: the Express API under
+# backend/ and the Vite + React app under frontend/. paths / paths-ignore are
+# honoured because JavaScript/TypeScript is an interpreted language for CodeQL.
+paths:
+  - backend/src
+  - frontend/src
+
+# Build output, vendored drops and dependencies -- not our code.
+paths-ignore:
+  - "**/*.min.js"
+  - "**/*.min.css"
+  - "**/dist/**"
+  - "**/node_modules/**"
+
+# --- Query suite -------------------------------------------------------
+# Default (the `code-scanning` security suite) runs when this is omitted.
+# Widen to the extended set by uncommenting:
+# queries:
+#   - uses: security-extended

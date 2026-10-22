@@ -1,0 +1,76 @@
+name: release-please
+
+# Maintains a long-lived "Release PR" against main. Every push to main
+# refreshes that PR with the next version (derived from Conventional Commit
+# history since the last release) and the accumulated CHANGELOG entries.
+#
+# Nothing is released until a maintainer merges the Release PR. Merging it:
+#   1. bumps the version in package.json / package-lock.json
+#   2. writes CHANGELOG.md
+#   3. creates the git tag (e.g. 1.1.0 -- no "v" prefix, matching tag 1.0.0)
+#   4. publishes the GitHub Release with generated notes
+#
+# Multiple breaking changes that land between releases collapse into a single
+# major bump on the pending PR -- they are not released one at a time.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Application code + static assets -- an actual shippable change.
+      - "backend/**"
+      - "frontend/**"
+      - "**/*.js"
+      - "**/*.jsx"
+      - "**/*.mjs"
+      - "**/*.cjs"
+      - "**/*.html"
+      - "**/*.css"
+      - "**/*.prisma"
+      # Dependencies and the runtime image go into the release artifact.
+      - "package.json"
+      - "**/package-lock.json"
+      - "**/Dockerfile"
+      - ".dockerignore"
+      - ".containerignore"
+      # release-please's own Release PR edits these. Listing them here is what
+      # lets MERGING that PR re-trigger this workflow so it tags + publishes
+      # the GitHub Release. Do not remove.
+      - ".release-please-manifest.json"
+
+permissions:
+  contents: write # tags, the GitHub Release, and the version/CHANGELOG commit
+  issues: write
+  pull-requests: write # open and update the Release PR
+
+# Don't let two passes race over main.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release-please
+        with:
+          # The built-in token is sufficient here. Caveat: tags/releases it
+          # creates do NOT trigger other workflows. If you later add a job
+          # that must run on the release tag (npm publish, docker push, ...),
+          # swap this for a PAT or GitHub App token.
+          token: ${{ secrets.RELEASE_PLEASE_GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          #release-type: # Look into this once we defined a language for the project
+
+
+      # Runs only on the push that merged the Release PR. This is the hook
+      # point for publish steps -- gate each one on the same condition
+      - name: Released
+        if: ${{ steps.release-please.outputs.release_created }}
+        #env:
+        #  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Published ${{ steps.release-please.outputs.tag_name }}"
+        # gh release upload ${{ steps.release-please.outputs.tag_name }} ./artifact/some-build-artifact.zip

@@ -1,0 +1,4 @@
+{
+  "fetchWrappers": ["apiClient.get", "apiClient.post", "apiClient.put", "apiClient.delete"],
+  "indexOnly": true
+}

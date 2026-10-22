@@ -1,0 +1,127 @@
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        💡 **If this is a Superseded document, you can use the previous ADR name as Title. ADRs will have a github #number.**
+
+  - type: input
+    id: date
+    attributes:
+      label: Date
+      description: Date when the ADR was created.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What situation requires a decision?
+      placeholder: Slowness observed in MySQL; a proposal was made to migrate to PostgreSQL.
+    validations:
+      required: true
+
+  - type: textarea
+    id: interrogations
+    attributes:
+      label: Interrogation 
+      description: What questions need to be answered ? What topic should be looked further in-depth ?
+      placeholder: |
+        - What database needs should the project prioritize ? 
+        - Look into OLTP and OLAP.
+    validations:
+      required: false
+
+  - type: textarea
+    id: options
+    attributes:
+      label: Options
+      description: What are our options?
+      placeholder: |
+        1. Stay with MySQL and optimize
+        2. Migrate to PostgreSQL
+        3. Migrate to MongoDB
+    validations:
+      required: true
+
+  - type: dropdown
+    id: decision
+    attributes:
+      label: Decision
+      options:
+        - Proposed
+        - Accepted
+        - Rejected
+        - Superseded
+      default: 0
+    validations:
+      required: true
+
+  - type: input
+    id: branch
+    attributes:
+      label: Branch
+      description: Branch to commit the ADR document to once this decision is Accepted and the discussion is closed. Leave empty until ready -- the discussion will be reopened and you'll be asked to fill it in if it's missing.
+      placeholder: main
+    validations:
+      required: false
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: Justification
+      description: Why was this decision taken?
+    validations:
+      required: false
+
+  - type: textarea
+    id: consequences-upside
+    attributes:
+      label: Consequences -- Upside
+      description: What are the expected benefits ?
+      placeholder: Fast database queries.
+    validations:
+      required: false
+
+  - type: textarea
+    id: consequences-tradeoff
+    attributes:
+      label: Consequences -- Trade-offs and risks
+      description: What are the expected consequences, trade-offs, or risks?
+      placeholder: Optimization work required; no migration.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: impact_size
+    attributes:
+      label: Impact size
+      description: Impact on the project as it is in the current state of main.
+      options:
+        - Tiny -- minutes
+        - Small -- hours
+        - Medium -- days
+        - Large -- weeks, needs breaking down
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Add relevant issues, pull requests, documentation, benchmarks, or external resources.
+      placeholder: |
+        - Issue #123
+        - https://example.com/...
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        💡 **Once the decision has been implemented, please come back and leave a final comment summarizing the outcome and close the discussion.
+        Make sure to include a branch to commit the document.**

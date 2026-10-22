@@ -1,0 +1,130 @@
+# App stack: a Traefik reverse proxy in front of a React frontend and an
+# Express API backed by Postgres and RabbitMQ.
+#
+#   http://localhost:8000/           -> frontend (Vite dev server, ./frontend)
+#   http://localhost:8000/api/items  -> backend  (Express API, ./backend)
+#   http://localhost:8000/ws         -> backend  (WebSocket)
+#   http://localhost:8080/           -> Traefik dashboard (insecure, local only)
+#   http://localhost:15672/          -> RabbitMQ management UI
+
+services:
+  proxy:
+    image: docker.io/library/traefik:v3.3
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --accesslog=true
+    ports:
+      - "${PROXY_PORT:-8000}:80"
+      - "${PROXY_DASHBOARD_PORT:-8080}:8080"
+    volumes:
+      - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro"
+
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - app-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 1s
+      timeout: 1s
+      retries: 10
+      start_period: 1s
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    user: rabbitmq
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq:U
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dev.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}?schema=public
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+    volumes:
+      - ./backend:/app
+      - backend-node-modules:/app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+
+      # Remove /api before sending the request to Express
+      - traefik.http.middlewares.backend-stripprefix.stripprefix.prefixes=/api
+
+      - traefik.http.routers.websocket.rule=Path(`/ws`)
+      - traefik.http.routers.websocket.priority=20
+      - traefik.http.routers.websocket.service=backend
+
+      - traefik.http.routers.backend.rule=PathPrefix(`/api`)
+      - traefik.http.routers.backend.priority=10
+      - traefik.http.routers.backend.middlewares=backend-stripprefix
+      - traefik.http.routers.backend.service=backend
+      - traefik.http.services.backend.loadbalancer.server.port=3000
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""
+        ]
+      interval: 1s
+      timeout: 1s
+      retries: 20
+      start_period: 1s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dev.Dockerfile
+    environment:
+      VITE_BACKEND_URL: http://backend:3000
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.frontend.rule=PathPrefix(`/`)
+      - traefik.http.routers.frontend.priority=1
+      - traefik.http.services.frontend.loadbalancer.server.port=3000
+    restart: unless-stopped
+
+volumes:
+  app-db-data:
+  rabbitmq-data:
+  backend-node-modules:
+  frontend-node-modules:

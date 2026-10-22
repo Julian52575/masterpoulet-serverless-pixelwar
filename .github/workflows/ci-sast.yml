@@ -1,0 +1,328 @@
+name: ci-sast
+
+# Static Application Security Testing -- external code-analysis services.
+#
+# Layout:
+#   guard            fast pre-check. Sets run=true normally; run=false (with a
+#                    reason logged) for a draft PR or a fork PR, where the tool
+#                    jobs then no-op to success. No job summary is written for a
+#                    no-op -- contributors only open the run summary when a
+#                    check is red.
+#   <tool> jobs      run the scan, build .sast/report/<tool>/ (summary.md +
+#                    badge.svg + raw JSON), write summary.md to the run summary
+#                    (pass or fail), enforce that tool's gate, and -- on push to
+#                    main only -- stash the report as a 1-day artifact named
+#                    sast-report-<tool>.
+#   commit-reports   push to main only. Collects every sast-report-* artifact
+#                    and commits the reports to main in ONE commit whose message
+#                    ends with [skip ci]. Pushes with the SAST_REPORT_TOKEN PAT
+#                    (so a protected main accepts it without a GitHub Actions
+#                    bypass); the [skip ci] marker plus the .sast/report/**
+#                    paths-ignore stop that PAT push from starting a new run.
+#                    Never runs on a pull request -- PR branches never carry
+#                    report commits, so report files never cause merge conflicts.
+#   ci-sast-required single stable check for the branch ruleset (add a job to
+#                    its `needs` list to make that job mandatory). commit-reports
+#                    is `skipped` on PRs, which counts as passing.
+#
+# Draft pull requests are skipped -- SAST runs once the PR is marked ready.
+# Fork pull requests are skipped -- they cannot read SONARQUBE_TOKEN.
+#
+# Per-tool config lives under ./.sast/ :
+#   .sast/sonar-project.properties  -- SonarQube Cloud scan settings
+#   .sast/bin/sonar-report.sh       -- builds .sast/report/sonarqube/
+#   .sast/codeql-config.yml         -- CodeQL paths / query suite
+#   .sast/bin/codeql-report.sh      -- builds .sast/report/codeql/ from the SARIF
+#
+# CodeQL runs fully in-workflow: it does NOT upload to GitHub code scanning
+# (analyze `upload: never`), so it needs no Advanced Security and no extra
+# permissions. Its findings are parsed from the SARIF into .sast/report/codeql/
+# and committed on main like the SonarQube report.
+#
+# Secrets (repo Settings > Secrets and variables > Actions):
+#   SONARQUBE_TOKEN    -- SonarQube Cloud analysis token (scanner SONAR_TOKEN).
+#   SAST_REPORT_TOKEN  -- PAT with Contents: read and write. commit-reports
+#                         pushes the [skip ci] report commit to main with it.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/*"
+      - ".github/rulesets"
+      - ".sast/report/**" # commit-reports' own commits; belt and braces with [skip ci]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch: # allow a manual re-run from the Actions tab
+
+# Least privilege. commit-reports pushes with the SAST_REPORT_TOKEN PAT, not
+# GITHUB_TOKEN, so no job needs contents: write.
+permissions:
+  contents: read
+
+# Cancel superseded PR runs. Never cancel a push-to-main run: it may be
+# mid-scan when the next merge lands, and killing it would drop that commit's
+# SAST report. commit-reports' own PAT push carries [skip ci], so it starts no
+# run that could cancel anything.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  guard:
+    name: Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - id: check
+        env:
+          IS_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          IS_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
+        run: |
+          if [[ $IS_FORK == true ]]; then
+            reason="Fork pull request -- SONARQUBE_TOKEN is not exposed to forks, so SonarQube cannot run."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [[ $IS_DRAFT == true ]]; then
+            reason="Draft pull request -- SAST runs once the PR is marked ready for review."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            reason=""
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "reason=${reason}" >> "$GITHUB_OUTPUT"
+          if [[ -n $reason ]]; then
+            echo "$reason"
+          fi
+
+  sonarqube:
+    name: SonarQube Cloud
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # When guard set run=false (draft or fork PR) every step below is skipped
+    # and the job goes green with no summary.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: needs.guard.outputs.run == 'true'
+        with:
+          # Check out the real branch (not the detached PR merge ref) so the
+          # analysis reflects the branch head.
+          ref: ${{ github.head_ref || github.ref_name }}
+          # SonarQube wants full history for accurate new-code + blame data.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # SonarQube itself does not run the tests -- it only imports the lcov
+      # reports the scanner is pointed at (sonar.javascript.lcov.reportPaths in
+      # .sast/sonar-project.properties). Without these steps no report exists
+      # and the scanner's Zero Coverage Sensor reports 0%, failing the
+      # new-code coverage condition. Mirrors ci.yml's `backend`/`frontend` jobs.
+      - name: Set up Node
+        if: needs.guard.outputs.run == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        if: needs.guard.outputs.run == 'true'
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate backend coverage for SonarQube
+        if: needs.guard.outputs.run == 'true'
+        working-directory: backend
+        run: npm run test:coverage
+
+      - name: Install frontend dependencies
+        if: needs.guard.outputs.run == 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Generate frontend coverage for SonarQube
+        if: needs.guard.outputs.run == 'true'
+        working-directory: frontend
+        run: npm run test:coverage
+
+      - name: SonarQube scan
+        if: needs.guard.outputs.run == 'true'
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          # The scanner reads SONAR_TOKEN; our secret is named SONARQUBE_TOKEN.
+          SONAR_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
+        with:
+          # Keep tool config out of the repo root.
+          args: -Dproject.settings=.sast/sonar-project.properties
+
+      - name: Build the report
+        id: report
+        if: needs.guard.outputs.run == 'true'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
+          SONAR_SCOPE: >-
+            ${{ github.event_name == 'pull_request'
+                && format('pullRequest={0}', github.event.pull_request.number)
+                || format('branch={0}', github.ref_name) }}
+        run: bash .sast/bin/sonar-report.sh
+
+      - name: Stash the report for commit-reports
+        if: always() && needs.guard.outputs.run == 'true' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sast-report-sonarqube
+          path: .sast/report/sonarqube
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Enforce the Quality Gate
+        if: needs.guard.outputs.run == 'true' && steps.report.outputs.gate == 'failed'
+        run: |
+          echo "::error::SonarQube Quality Gate failed -- see the job summary"
+          exit 1
+
+  codeql:
+    name: CodeQL
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # contents: read is enough -- analyze runs with `upload: never`, so nothing
+    # is sent to GitHub code scanning and security-events: write is not needed.
+    permissions:
+      contents: read
+    # When guard set run=false (draft or fork PR) every step below is skipped
+    # and the job goes green with no summary.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: needs.guard.outputs.run == 'true'
+        with:
+          # Check out the real branch (not the detached PR merge ref) so the
+          # analysis reflects the branch head, matching the SonarQube job.
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        if: needs.guard.outputs.run == 'true'
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          # Express API + Vite/React app -- one interpreted language, no build.
+          languages: javascript-typescript
+          build-mode: none
+          config-file: .sast/codeql-config.yml
+
+      - name: Analyze
+        id: analyze
+        if: needs.guard.outputs.run == 'true'
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: "/language:javascript-typescript"
+          # SARIF lands here for codeql-report.sh to parse; nothing is uploaded.
+          output: .sast/codeql-results
+          # Keep the workflow self-contained -- no dependency on GitHub code
+          # scanning / Advanced Security. Set to "always" (and add
+          # security-events: write to this job's permissions) to also publish
+          # findings to the repo's Security tab.
+          upload: never
+
+      - name: Build the report
+        id: report
+        if: needs.guard.outputs.run == 'true'
+        env:
+          SARIF_DIR: .sast/codeql-results
+          CODEQL_SCOPE: >-
+            ${{ github.event_name == 'pull_request'
+                && format('pullRequest={0}', github.event.pull_request.number)
+                || format('branch={0}', github.ref_name) }}
+        run: bash .sast/bin/codeql-report.sh
+
+      - name: Stash the report for commit-reports
+        if: always() && needs.guard.outputs.run == 'true' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sast-report-codeql
+          path: .sast/report/codeql
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Enforce the gate
+        if: needs.guard.outputs.run == 'true' && steps.report.outputs.gate == 'failed'
+        run: |
+          echo "::error::CodeQL found error-severity alerts -- see the job summary"
+          exit 1
+
+  # push to main only. Runs even if a tool job failed, so a red report still
+  # lands on main. Skipped on pull requests -- which ci-sast-required treats as
+  # a pass.
+  commit-reports:
+    name: Commit SAST reports
+    needs: [guard, sonarqube, codeql]
+    if: always() && github.ref == 'refs/heads/main' && needs.guard.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+          fetch-depth: 0
+          # SAST_REPORT_TOKEN (a PAT with Contents: write) is left in
+          # .git/config for the push, so a protected main accepts it without a
+          # GitHub Actions bypass. A PAT push would normally re-trigger CI; the
+          # [skip ci] marker and the .sast/report/** paths-ignore prevent that.
+          token: ${{ secrets.SAST_REPORT_TOKEN }}
+
+      - name: Collect tool reports
+        continue-on-error: true # nothing to collect if every tool job crashed early
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: sast-report-*
+          path: .sast/report
+
+      - name: Lay reports out under .sast/report/<tool>/
+        run: |
+          shopt -s nullglob
+          for d in .sast/report/sast-report-*/; do
+            tool=${d#.sast/report/sast-report-}; tool=${tool%/}
+            rm -rf ".sast/report/${tool}"
+            mv "$d" ".sast/report/${tool}"
+          done
+
+      - name: Commit the refreshed reports to main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .sast/report
+          if git diff --cached --quiet; then
+            echo "SAST reports unchanged."
+            exit 0
+          fi
+          # [skip ci] so this push starts no further ci / ci-sast run.
+          git commit -m "ci(sast): refresh SAST reports [skip ci]"
+          for attempt in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            echo "push rejected (attempt ${attempt}); rebasing onto main"
+            git pull --rebase --autostash origin main || break
+          done
+          echo "::warning::could not push the refreshed SAST reports; they will refresh on the next push to main"
+
+  # Passes when every needed job succeeded or was skipped; fails on
+  # failure/cancelled. Mirrors ci.yml's ci-required.
+  ci-sast-required:
+    if: always()
+    needs: [guard, sonarqube, codeql, commit-reports]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every required job passed
+        run: |
+          if printf '%s\n' '${{ join(needs.*.result, ' ') }}' | grep -Eqw 'failure|cancelled'; then
+            echo "a required job did not succeed: ${{ join(needs.*.result, ', ') }}"
+            exit 1
+          fi

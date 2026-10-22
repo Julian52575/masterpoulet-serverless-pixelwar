@@ -3,6 +3,7 @@
 import argparse
 import json
 import random
+import time
 import urllib.error
 import urllib.request
 
@@ -28,6 +29,7 @@ def main():
     p.add_argument("--color", help="fixed hex color, e.g. #ff0000 (default: random)")
     p.add_argument("--author", default="api-script")
     p.add_argument("--size", type=int, default=10000, help="grid size for random positions")
+    p.add_argument("--delay", type=float, default=0, help="seconds to wait between pixels")
     p.add_argument("--url", default="http://localhost:8000/api", help="API base URL")
     args = p.parse_args()
 
@@ -48,6 +50,8 @@ def main():
         if status == 423:
             print("drawing is paused")
             break
+        if args.delay and i < args.count - 1:
+            time.sleep(args.delay)
     print(f"{ok}/{args.count} accepted")
 
 

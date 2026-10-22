@@ -6,7 +6,8 @@ Make sure to read the README.md.
 
 1. Clone the repo and `cp .env.example .env`.
 2. Install [just](https://github.com/casey/just) and Podman/Docker. (Or use the Nix dev shell, which provides both by: `nix develop`).
-3. `just up --detach`, then open http://localhost:8000. (the port at ${PROXY_PORT})
+3. Without Nix, enable the commit hooks yourself: `git config core.hooksPath .githooks` (see [Commit hooks](#commit-hooks)). `nix develop` does this for you.
+4. `just up --detach`, then open http://localhost:8000. (the port at ${PROXY_PORT})
 
 See the [README](README.md) for the stack and the `just` recipes.
 

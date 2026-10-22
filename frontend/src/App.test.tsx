@@ -11,7 +11,7 @@ describe('App', () => {
     vi.stubGlobal('WebSocket', FakeWebSocket)
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] })
     vi.stubGlobal('fetch', fetchMock)
-    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({ fillRect() {}, fillStyle: '' })
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({ fillRect() {}, clearRect() {}, save() {}, restore() {}, fillStyle: '' })
     render(<App />)
     expect(await screen.findByLabelText('Author')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Brush'), { target: { value: '4' } })

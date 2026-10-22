@@ -31,14 +31,15 @@ function createApp({ db, publish, admins = [], defaultLimit = 20, now = Date.now
   const overrides = new Map();
   const hits = new Map();
 
-  // Sliding one-minute window; a brush costs one hit per pixel.
+  // Sliding one-minute window; a brush costs one hit per pixel and is truncated to the quota.
+  // Returns how many of `cost` pixels fit in the quota left (0 = rate limited).
   const consume = (user, cost) => {
     const t = now();
     const recent = (hits.get(user) || []).filter((h) => t - h < 60000);
-    if (recent.length + cost > (overrides.get(user) ?? defaultLimit)) return false;
-    for (let i = 0; i < cost; i++) recent.push(t);
+    const granted = Math.max(0, Math.min(cost, (overrides.get(user) ?? defaultLimit) - recent.length));
+    for (let i = 0; i < granted; i++) recent.push(t);
     hits.set(user, recent);
-    return true;
+    return granted;
   };
 
   const requireAdmin = (req, res, next) =>
@@ -46,13 +47,15 @@ function createApp({ db, publish, admins = [], defaultLimit = 20, now = Date.now
 
   const submit = async (res, user, pixels) => {
     if (state.paused) return res.status(423).json({ error: "drawing is paused" });
-    if (!consume(user, pixels.length)) return res.status(429).json({ error: "rate limited" });
+    const granted = consume(user, pixels.length);
+    if (granted === 0) return res.status(429).json({ error: "rate limited" });
+    const accepted = pixels.slice(0, granted);
     await publish("pixel.draw", {
-      pixels,
+      pixels: accepted,
       author: user,
       at: new Date(now()).toISOString(),
     });
-    res.status(202).json({ accepted: pixels.length });
+    res.status(202).json({ accepted: accepted.length });
   };
 
   const inRegion = ({ x, y, w, h }) => ({

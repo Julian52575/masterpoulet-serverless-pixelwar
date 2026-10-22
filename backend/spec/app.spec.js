@@ -58,10 +58,12 @@ describe("brush", () => {
     expect(publish.mock.calls[0][1].pixels).toHaveLength(4);
   });
 
-  it("counts every pixel against the rate limit", async () => {
-    const { app } = setup({ defaultLimit: 10 });
-    expect((await request(app).post("/brush").send({ ...px, x: 5, y: 5, size: 3 })).status).toBe(202);
-    expect((await request(app).post("/brush").send({ ...px, x: 5, y: 5, size: 2 })).status).toBe(429);
+  it("truncates a brush to the remaining quota instead of rejecting it", async () => {
+    const { app, publish } = setup({ defaultLimit: 10 });
+    const big = { ...px, x: 5, y: 5, size: 5 };
+    expect((await request(app).post("/brush").send(big)).body).toEqual({ accepted: 10 });
+    expect(publish.mock.calls[0][1].pixels).toHaveLength(10);
+    expect((await request(app).post("/brush").send(big)).status).toBe(429);
   });
 });
 

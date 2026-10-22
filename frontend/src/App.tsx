@@ -28,13 +28,19 @@ export default function App() {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    // The grid is a white sheet with a soft shadow so its edges stand out from the page.
+    ctx.save()
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)'
+    ctx.shadowBlur = 24
     ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillRect(-view.x * view.scale, -view.y * view.scale, size * view.scale, size * view.scale)
+    ctx.restore()
     for (const p of pixels.current.values()) {
       ctx.fillStyle = p.color
       ctx.fillRect((p.x - view.x) * view.scale, (p.y - view.y) * view.scale, view.scale, view.scale)
     }
-  }, [view])
+  }, [view, size])
 
   // Tiles are fetched once each; live deltas arrive over the WebSocket.
   useEffect(() => {
@@ -151,8 +157,19 @@ export default function App() {
   }
 
   return (
-    <main style={{ display: 'flex', flexDirection: 'column', height: '100vh', margin: 0 }}>
-      <header style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8 }}>
+    <main
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        margin: 0,
+        background:
+          'radial-gradient(circle at 15% 20%, #7c5cff 0%, transparent 45%), radial-gradient(circle at 85% 30%, #00c2ff 0%, transparent 50%), radial-gradient(circle at 50% 90%, #ff6bb5 0%, transparent 55%), #2a2a3d',
+      }}
+    >
+      <header
+        style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(8px)' }}
+      >
         <strong>serverless-pixelwar</strong>
         <input aria-label="Author" value={author} onChange={(e) => setAuthor(e.target.value)} />
         {PALETTE.map((c) => (

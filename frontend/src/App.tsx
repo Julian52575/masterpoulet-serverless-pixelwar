@@ -26,6 +26,17 @@ const DEFAULT_CONFIG: Config = {
 const nextFrame = (cb: () => void) =>
   typeof requestAnimationFrame === 'function' ? requestAnimationFrame(cb) : window.setTimeout(cb, 16)
 
+const SNAPSHOT_NAME = /^snapshot-[\w-]+\.png$/
+
+// The link is built from a fixed path and a validated name, never from a URL in a socket message.
+const snapshotUrl = (name: unknown) =>
+  typeof name === 'string' && SNAPSHOT_NAME.test(name) ? `/api/snapshots/${name}` : null
+
+const DRAW_ERRORS: Record<number, string> = {
+  423: 'Drawing is paused',
+  429: 'Slow down: rate limited',
+}
+
 // Keeps the grid on screen: no panning past its edges.
 function clampView(v: View, width: number, height: number, size: number): View {
   const maxX = Math.max(0, size - width / v.scale)
@@ -150,7 +161,7 @@ export default function App() {
             setPaused(false)
             break
           case 'snapshot.ready':
-            setSnapshot(msg.payload.url)
+            setSnapshot(snapshotUrl(msg.payload?.name))
             break
         }
       }
@@ -223,11 +234,7 @@ export default function App() {
       body: JSON.stringify({ x, y, color, author, size: brush }),
     })
     if (res.status === 423) setPaused(true)
-    if (!res.ok) {
-      setError(
-        res.status === 429 ? 'Slow down: rate limited' : res.status === 423 ? 'Drawing is paused' : 'Could not draw',
-      )
-    }
+    if (!res.ok) setError(DRAW_ERRORS[res.status] ?? 'Could not draw')
   }
 
   const onPointerUp = (e: PointerEvent) => {
@@ -236,8 +243,8 @@ export default function App() {
     if (!p || p.moved) return
     const { x, y } = toCell(e.clientX, e.clientY)
     if (x < 0 || y < 0 || x >= config.size || y >= config.size) return
-    if (mode === 'inspect' || e.shiftKey) inspect(x, y)
-    else paint(x, y)
+    if (mode === 'inspect' || e.shiftKey) void inspect(x, y)
+    else void paint(x, y)
   }
 
   const requestSnapshot = async () => {
@@ -289,7 +296,7 @@ export default function App() {
         ))}
         <input aria-label="Custom color" type="color" value={color} onChange={(e) => setColor(e.target.value)} />
         <label>
-          Brush
+          {'Brush '}
           <input
             type="number"
             min={1}
@@ -305,7 +312,11 @@ export default function App() {
             Download snapshot
           </a>
         )}
-        {paused && <strong role="status">Paused</strong>}
+        {paused && (
+          <output>
+            <strong>Paused</strong>
+          </output>
+        )}
         <span>
           {hover ? `(${hover.x}, ${hover.y})` : '—'} x{view.scale.toFixed(1)}
         </span>

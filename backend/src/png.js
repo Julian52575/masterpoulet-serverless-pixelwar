@@ -1,4 +1,4 @@
-const zlib = require("zlib");
+const zlib = require("node:zlib");
 
 function chunk(type, data) {
   const body = Buffer.concat([Buffer.from(type), data]);
@@ -16,7 +16,7 @@ function renderPng({ ox, oy, w, h, pixels }) {
   for (let row = 0; row < h; row++) raw[row * stride] = 0;
   for (const p of pixels) {
     const i = (p.y - oy) * stride + 1 + (p.x - ox) * 3;
-    const n = parseInt(p.color.slice(1), 16);
+    const n = Number.parseInt(p.color.slice(1), 16);
     raw[i] = n >> 16;
     raw[i + 1] = (n >> 8) & 255;
     raw[i + 2] = n & 255;

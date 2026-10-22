@@ -2,7 +2,7 @@ jest.mock("amqplib");
 const mockClient = { terminate: jest.fn() };
 jest.mock("ws", () => ({
   WebSocketServer: jest.fn(() => ({ clients: [mockClient], close: jest.fn() })),
-  WebSocket: {},
+  WebSocket: { OPEN: 1 },
 }));
 const amqp = require("amqplib");
 const { initEvents } = require("../src/events");
@@ -22,13 +22,30 @@ function fakeChannel() {
   };
 }
 
+function fakeConnection(ch) {
+  const handlers = {};
+  return {
+    handlers,
+    on: jest.fn((event, fn) => (handlers[event] = fn)),
+    createChannel: async () => ch,
+    close: jest.fn().mockResolvedValue(),
+  };
+}
+
 async function setup(handle) {
   const ch = fakeChannel();
-  amqp.connect.mockResolvedValue({ on: jest.fn(), createChannel: async () => ch, close: jest.fn() });
+  const conn = fakeConnection(ch);
+  amqp.connect.mockResolvedValue(conn);
   const events = await initEvents({ server: {}, url: "amqp://x", handle });
-  const commands = ch.consume.mock.calls.find(([q]) => q === "pixelwar.commands.fifo")[1];
-  return { ch, commands, events };
+  const consumer = (q) => ch.consume.mock.calls.find(([name]) => name === q)[1];
+  return { ch, conn, events, commands: consumer("pixelwar.commands.fifo"), relay: consumer("events") };
 }
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockClient.readyState = 1;
+  mockClient.send = jest.fn();
+});
 
 const msg = (type) => ({ content: Buffer.from(JSON.stringify({ type, payload: {} })) });
 
@@ -54,5 +71,48 @@ describe("events", () => {
     const { events } = await setup(jest.fn());
     await events.close();
     expect(mockClient.terminate).toHaveBeenCalled();
+  });
+
+  it("relays broker events to open WebSocket clients", async () => {
+    const { relay } = await setup(jest.fn());
+    relay({ content: Buffer.from('{"type":"x"}') });
+    expect(mockClient.send).toHaveBeenCalledWith('{"type":"x"}');
+  });
+
+  it("skips publishing when the worker has nothing to announce", async () => {
+    const { ch, commands } = await setup(async () => null);
+    await commands(msg("admin.ratelimit"));
+    expect(ch.publish).not.toHaveBeenCalled();
+    expect(ch.ack).toHaveBeenCalled();
+  });
+
+  it("drops a command whose handler fails without crashing", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const { ch, commands } = await setup(async () => {
+      throw new Error("boom");
+    });
+    await commands(msg("pixel.draw"));
+    expect(ch.nack).toHaveBeenCalledWith(expect.anything(), false, false);
+  });
+
+  it("queues published commands", async () => {
+    const { ch, events } = await setup(jest.fn());
+    await events.publish("pixel.draw", { a: 1 });
+    expect(ch.sendToQueue.mock.calls[0][0]).toBe("pixelwar.commands.fifo");
+    expect(JSON.parse(ch.sendToQueue.mock.calls[0][1])).toEqual({ type: "pixel.draw", payload: { a: 1 } });
+    expect(ch.sendToQueue.mock.calls[0][2]).toEqual({ persistent: true });
+  });
+
+  it("reconnects after the broker connection drops", async () => {
+    jest.useFakeTimers();
+    try {
+      const { conn, events } = await setup(jest.fn());
+      conn.handlers.close();
+      await expect(events.publish("pixel.draw", {})).rejects.toThrow("broker unavailable");
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(amqp.connect).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

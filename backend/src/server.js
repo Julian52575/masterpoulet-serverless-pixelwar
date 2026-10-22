@@ -1,4 +1,4 @@
-const http = require("http");
+const http = require("node:http");
 const { PrismaClient } = require("@prisma/client");
 const { createApp } = require("./app");
 const { initEvents } = require("./events");

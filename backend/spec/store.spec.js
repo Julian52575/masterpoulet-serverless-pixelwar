@@ -40,6 +40,38 @@ describe("store", () => {
   });
 });
 
+describe("store state", () => {
+  function stateDb(row) {
+    return {
+      setting: { findUnique: jest.fn().mockResolvedValue(row), upsert: jest.fn() },
+      rateLimit: { upsert: jest.fn() },
+      $executeRaw: jest.fn(),
+    };
+  }
+
+  it("reads and writes the pause flag", async () => {
+    const db = stateDb({ value: "true" });
+    const store = createStore(db);
+    expect(await store.isPaused()).toBe(true);
+    await store.setPaused(false);
+    expect(db.setting.upsert.mock.calls[0][0].update).toEqual({ value: "false" });
+    expect(await createStore(stateDb(null)).isPaused()).toBe(false);
+  });
+
+  it("stores a per-user override", async () => {
+    const db = stateDb(null);
+    await createStore(db).setLimit("bob", 7);
+    expect(db.rateLimit.upsert.mock.calls[0][0]).toMatchObject({ create: { userId: "bob", limit: 7 } });
+  });
+
+  it("does not refund when nothing was accounted", async () => {
+    const db = stateDb(null);
+    await createStore(db).refund("bob", 3, undefined);
+    await createStore(db).refund("bob", 0, 5);
+    expect(db.$executeRaw).not.toHaveBeenCalled();
+  });
+});
+
 describe("parseRateLimit", () => {
   it("defaults to the spec value", () => {
     expect(parseRateLimit(undefined)).toBe(20);

@@ -13,7 +13,7 @@ const isNewer = (a: Pixel, b: Pixel | undefined) => !b || (a.updatedAt ?? '') >=
 
 // Each tile is painted once into its own small canvas; a frame is just one drawImage per visible tile.
 export class TileCache {
-  private tiles = new Map<string, Tile>()
+  private readonly tiles = new Map<string, Tile>()
   private gen = 0
   private clock = 0
 

@@ -12,12 +12,14 @@ See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 ```bash
 cp .env.example .env
 nix develop            # optional, see below
-just up --detach       # start the compose stack, then open http://localhost:8000
+just up --detach       # start the whole compose stack (expensive), then open http://localhost:8000
 just reset backend     # rebuild the backend service only
 just reset frontend    # rebuild the frontend service only
 just reset             # reset all
 just nuke              # nuke all (save database)
 ```
+
+Note that the local backend and frontend dev containers are dynamic, so local code changes are automatically replicated.
 
 ## Nix flake (optional)
 

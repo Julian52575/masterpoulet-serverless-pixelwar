@@ -83,6 +83,15 @@ describe("rate limit and admin", () => {
     }
   });
 
+  it("caps the brush at 16 unless the rate limit is disabled", async () => {
+    const big = { ...px, x: 0, y: 0, size: 40 };
+    expect((await request(setup().app).post("/brush").send(big)).status).toBe(400);
+    expect((await request(setup().app).get("/config")).body.maxBrush).toBe(16);
+    const open = setup({ defaultLimit: 0 }).app;
+    expect((await request(open).post("/brush").send(big)).status).toBe(202);
+    expect((await request(open).get("/config")).body.maxBrush).toBe(10000);
+  });
+
   it("refuses admin routes to normal users", async () => {
     const { app } = setup();
     expect((await request(app).post("/admin/pause").set("x-user", "bob")).status).toBe(403);

@@ -10,9 +10,8 @@ const coord = z.coerce.number().int().min(0).max(SIZE - 1);
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const author = z.string().trim().min(1).max(64);
 const pixelSchema = z.object({ x: coord, y: coord, color, author });
-const brushSchema = pixelSchema.extend({
-  size: z.coerce.number().int().min(1).max(MAX_BRUSH),
-});
+const brushSchema = (max) =>
+  pixelSchema.extend({ size: z.coerce.number().int().min(1).max(max) });
 const regionSchema = (max) =>
   z.object({
     x: coord.default(0),
@@ -28,6 +27,8 @@ function createApp({ db, publish, admins = [], defaultLimit = 20, now = Date.now
   app.use(express.json());
 
   const state = { paused: false };
+  // Without a rate limit nothing else bounds a brush, so only the grid does.
+  const maxBrush = defaultLimit === 0 ? SIZE : MAX_BRUSH;
   const overrides = new Map();
   const hits = new Map();
 
@@ -68,7 +69,7 @@ function createApp({ db, publish, admins = [], defaultLimit = 20, now = Date.now
   app.get("/health", (req, res) => res.json({ status: "ok" }));
 
   app.get("/config", (req, res) =>
-    res.json({ size: SIZE, tile: TILE, maxBrush: MAX_BRUSH, paused: state.paused }),
+    res.json({ size: SIZE, tile: TILE, maxBrush, paused: state.paused }),
   );
 
   // Chunked loading: one fixed-size tile per request, cacheable by the client.
@@ -99,7 +100,7 @@ function createApp({ db, publish, admins = [], defaultLimit = 20, now = Date.now
 
   // Square brush centred on (x, y), clipped to the grid.
   app.post("/brush", async (req, res) => {
-    const parsed = brushSchema.safeParse(req.body);
+    const parsed = brushSchema(maxBrush).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "invalid brush" });
     const { x, y, size, color: c, author: user } = parsed.data;
     const start = -Math.floor((size - 1) / 2);

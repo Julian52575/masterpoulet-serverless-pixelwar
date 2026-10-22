@@ -4,7 +4,8 @@ set shell := ["bash", "-eu", "-c"]
 # keeps each argument intact. `{{args}}` interpolation is unaffected.
 set positional-arguments := true
 
-tool := `command -v podman >/dev/null && echo podman || echo docker`
+# CONTAINER_TOOL overrides the choice (CI uses the runner's docker).
+tool := env("CONTAINER_TOOL", `command -v podman >/dev/null && echo podman || echo docker`)
 compose := tool + " compose"
 # compose derives the project name from the directory name
 project := lowercase(file_name(justfile_directory()))
@@ -113,6 +114,24 @@ attach service:
 _cid service:
     @{{tool}} ps -q --filter "label=com.docker.compose.project.working_dir={{justfile_directory()}}" --filter "label=com.docker.compose.service={{service}}" | head -n1
 
+#### Lint
+
+# Validate the monitoring stack's configs with each tool's own checker (images pinned as in docker-compose.yml)
+monitoring-lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{compose}} --profile monitoring config >/dev/null
+    # Repo mounted read-only at /w; each image validates its own config.
+    check() { image=$1 entrypoint=$2; shift 2; {{tool}} run --rm -v "$PWD:/w:ro" -w /w --entrypoint "$entrypoint" "$image" "$@"; }
+    c=observability/compose
+    check quay.io/prometheus/prometheus:v3.15.0 promtool check config --syntax-only $c/prometheus.yml
+    check quay.io/prometheus/prometheus:v3.15.0 promtool check rules charts/pixelwar/files/alerts/app.yml charts/pixelwar/files/alerts/host.yml
+    check quay.io/prometheus/alertmanager:v0.34.1 amtool check-config $c/alertmanager.yml
+    check docker.io/grafana/loki:3.6.16 loki -config.file=$c/loki.yaml -verify-config
+    check docker.io/grafana/tempo:2.9.0 /tempo -config.file=$c/tempo.yaml -config.verify=true
+    check docker.io/grafana/alloy:v1.21.1 alloy validate $c/alloy.alloy
+    for f in charts/pixelwar/files/dashboards/*.json; do python3 -m json.tool "$f" >/dev/null && echo "$f: valid JSON"; done
+
 #### Kubernetes (docs/kubernetes.md)
 
 kind_cluster := "pixelwar"
@@ -178,13 +197,28 @@ k8s-app *args:
 # Everything, from nothing to a running app with observability
 k8s-up: k8s-cluster k8s-secrets k8s-observability k8s-images k8s-app
 
-# Offline checks: lint and render the app chart, then validate the manifests against the API schemas
+# Offline checks: lint and render the app chart and the observability charts, then validate them against the API schemas
 k8s-validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # CRDs (ServiceMonitor, IngressRoute, ...) are checked against the community CRD catalog.
+    validate() { kubeconform -strict -summary -ignore-missing-schemas -schema-location default \
+        -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{"{{"}}.Group{{"}}"}}/{{"{{"}}.ResourceKind{{"}}"}}_{{"{{"}}.ResourceAPIVersion{{"}}"}}.json'; }
     helm lint charts/pixelwar -f deploy/k8s/pixelwar/values-local.yaml
-    helm template pixelwar charts/pixelwar -f deploy/k8s/pixelwar/values-local.yaml \
-      | kubeconform -strict -summary -ignore-missing-schemas \
-          -schema-location default \
-          -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{"{{"}}.Group{{"}}"}}/{{"{{"}}.ResourceKind{{"}}"}}_{{"{{"}}.ResourceAPIVersion{{"}}"}}.json'
+    helm template pixelwar charts/pixelwar -f deploy/k8s/pixelwar/values-local.yaml | validate
+    source deploy/k8s/observability/versions.env
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
+    helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
+    helm repo add traefik https://traefik.github.io/charts >/dev/null
+    helm repo update >/dev/null
+    v=deploy/k8s/observability
+    # --api-versions: charts that create ServiceMonitors refuse to render without the CRD.
+    for chart in prometheus-community/kube-prometheus-stack:$KPS_VERSION grafana/loki:$LOKI_VERSION grafana/tempo:$TEMPO_VERSION grafana/alloy:$ALLOY_VERSION traefik/traefik:$TRAEFIK_VERSION; do
+        ref=${chart%%:*} name=${ref##*/}
+        echo "== $name"
+        helm template "$name" "$ref" --version "${chart##*:}" -n monitoring -f "$v/$name.yaml" \
+            --api-versions monitoring.coreos.com/v1 | validate
+    done
 
 # Forward the app (8000), Grafana (3001), Prometheus (9090) and Alertmanager (9093) to localhost
 k8s-forward:

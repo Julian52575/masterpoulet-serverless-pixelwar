@@ -191,6 +191,41 @@ jobs:
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
 
+  # Each observability tool validates its own Compose config; uses the runner's docker.
+  monitoring-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PODMAN_NO_SOCKET: "1"
+      CONTAINER_TOOL: docker
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-devshell
+
+      - name: Lint the monitoring stack configs
+        run: |
+          cp .env.example .env
+          nix develop --command just monitoring-lint
+
+  # Helm lint, then kubeconform on the app chart and every upstream chart with our values.
+  k8s-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PODMAN_NO_SOCKET: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-devshell
+
+      - name: Lint and validate the Kubernetes manifests
+        run: nix develop --command just k8s-validate
+
   # Every workflow actionlint finds under .github/workflows -- a new one is
   # picked up without touching this workflow -- including the shellcheck pass
   # on each `run:` script (bundled in the actionlint image).
@@ -335,6 +370,8 @@ jobs:
       - frontend
       - dockerfile-lint
       - compose-lint
+      - monitoring-lint
+      - k8s-lint
       - workflow-lint
     runs-on: ubuntu-latest
     timeout-minutes: 30

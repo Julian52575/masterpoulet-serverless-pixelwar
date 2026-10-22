@@ -1,0 +1,35 @@
+# Deployment failures surface as alerts through the same Alertmanager as the app alerts.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argocd-{{ .Values.env }}
+  namespace: {{ .Values.observability.namespace }}
+  labels:
+    release: kube-prometheus-stack
+  annotations:
+    # The CRD exists only once kube-prometheus-stack is installed.
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: argocd
+      rules:
+        - alert: ArgoCDAppUnhealthy
+          expr: argocd_app_info{health_status!~"Healthy|Progressing"} == 1
+          for: 5m
+          labels:
+            severity: critical
+            component: argocd
+          annotations:
+            summary: "Argo CD app {{`{{ $labels.name }}`}} is {{`{{ $labels.health_status }}`}}"
+            runbook: docs/gitops.md#a-sync-or-rollout-fails
+        - alert: ArgoCDAppOutOfSync
+          expr: argocd_app_info{sync_status="OutOfSync"} == 1
+          for: 15m
+          labels:
+            severity: warning
+            component: argocd
+          annotations:
+            summary: "Argo CD app {{`{{ $labels.name }}`}} has been OutOfSync for 15m"
+            description: Auto-sync keeps failing or drift cannot be reconciled.
+            runbook: docs/gitops.md#a-sync-or-rollout-fails

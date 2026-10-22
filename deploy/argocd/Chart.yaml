@@ -1,0 +1,5 @@
+apiVersion: v2
+name: pixelwar-gitops
+description: Argo CD Applications (app of apps) for the pixelwar app and its observability stack
+type: application
+version: 0.1.0

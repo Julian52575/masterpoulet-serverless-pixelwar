@@ -9,6 +9,7 @@ See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 
 - [docs/observability.md](docs/observability.md): metrics, logs, traces and alerts, opt-in with `just up -d --profile monitoring` (Grafana on http://localhost:3001)
 - [docs/kubernetes.md](docs/kubernetes.md): Helm chart and local Kubernetes cluster (`just k8s-up`)
+- [docs/gitops.md](docs/gitops.md): Argo CD deployment, promotion and recovery (`just argocd-bootstrap`)
 
 ## Quick start
 

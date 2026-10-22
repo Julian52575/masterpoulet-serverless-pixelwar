@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pixelwar-{{ .Values.env }}
+  namespace: argocd
+spec:
+  description: pixelwar {{ .Values.env }} environment
+  sourceRepos:
+    - {{ .Values.repoURL }}
+    {{- range $name, $c := .Values.observability.charts }}
+    - {{ $c.repoURL }}
+    {{- end }}
+  destinations:
+    - { server: {{ .Values.destinationServer }}, namespace: {{ .Values.app.namespace }} }
+    - { server: {{ .Values.destinationServer }}, namespace: {{ .Values.observability.namespace }} }
+    - { server: {{ .Values.destinationServer }}, namespace: traefik }
+    # Operators install into kube-system (kubelet ServiceMonitor service).
+    - { server: {{ .Values.destinationServer }}, namespace: kube-system }
+  # kube-prometheus-stack and Traefik install CRDs, ClusterRoles and webhooks.
+  clusterResourceWhitelist:
+    - { group: "*", kind: "*" }

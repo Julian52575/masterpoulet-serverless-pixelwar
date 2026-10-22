@@ -1,0 +1,29 @@
+# Argo CD itself (installed by `just argocd-install`, not self-managed in this prototype).
+dex:
+  enabled: false
+notifications:
+  # Failures are reported through Prometheus alerts instead (templates/alerts.yaml).
+  enabled: false
+configs:
+  params:
+    # TLS is terminated by `kubectl port-forward` locally.
+    server.insecure: true
+  cm:
+    # Restores Application health checks so sync waves wait for child apps to be Healthy.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels: { release: kube-prometheus-stack }

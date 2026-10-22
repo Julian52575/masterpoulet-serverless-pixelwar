@@ -1,0 +1,5 @@
+# Local kind cluster: images built and loaded by `just k8s-images`.
+env: local
+app:
+  valueFiles:
+    - deploy/k8s/pixelwar/values-local.yaml

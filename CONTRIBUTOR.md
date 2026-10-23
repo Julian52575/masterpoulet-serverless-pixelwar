@@ -32,7 +32,7 @@ The [`api-scripts/`](api-scripts/README.md) folder holds helper scripts that exe
 - **Link an issue** in the PR description.
 - **Comments:** keep them short and explain why, not what.
 - **Secrets** never go in git. `.env` is ignored; put new variables in `.env.example` with a safe placeholder.
-- **Branches:** commit your work on branches and merge them to `main` using a **Pull Request**
+- **Branches:** commit your work on branches and merge them to `main` using a **Pull Request**. Feature branches name should be prefixed with `feat/`. 
 - **Release:** Releases are made from `main` by closing the `release-please` Pull Request.
 
 ## Commit hooks

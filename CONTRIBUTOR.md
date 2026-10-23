@@ -6,7 +6,8 @@ Make sure to read the README.md.
 
 1. Clone the repo and `cp .env.example .env`.
 2. Install [just](https://github.com/casey/just) and Podman/Docker. (Or use the Nix dev shell, which provides both by: `nix develop`).
-3. `just up --detach`, then open http://localhost:8000. (the port at ${PROXY_PORT})
+3. Without Nix, enable the commit hooks yourself: `git config core.hooksPath .githooks` (see [Commit hooks](#commit-hooks)). `nix develop` does this for you.
+4. `just up --detach`, then open http://localhost:8000. (the port at ${PROXY_PORT})
 
 See the [README](README.md) for the stack and the `just` recipes.
 
@@ -31,7 +32,7 @@ The [`api-scripts/`](api-scripts/README.md) folder holds helper scripts that exe
 - **Link an issue** in the PR description.
 - **Comments:** keep them short and explain why, not what.
 - **Secrets** never go in git. `.env` is ignored; put new variables in `.env.example` with a safe placeholder.
-- **Branches:** commit your work on branches and merge them to `main` using a **Pull Request**
+- **Branches:** commit your work on branches and merge them to `main` using a **Pull Request**. Feature branches name should be prefixed with `feat/`. 
 - **Release:** Releases are made from `main` by closing the `release-please` Pull Request.
 
 ## Commit hooks

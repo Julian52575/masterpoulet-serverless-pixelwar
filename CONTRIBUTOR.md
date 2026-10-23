@@ -52,6 +52,10 @@ git config --global commit.gpgsign true
 
 Then add the same key on GitHub (Settings → SSH and GPG keys) as a **Signing Key**. `--no-verify` skips the hooks locally.
 
+## Dev tools
+
+Providing dev tools for local testing is encouraged, like `api-scripts/`, use python instead of a os-specific scripting language.
+
 ## CI
 
 Every PR runs `ci.yml` (lint, tests, Docker and compose lint, full-stack boot test, GitNexus) and `ci-sast.yml` (SonarQube, CodeQL). If GitNexus reports a stale `docs/gitnexus/api-links.md`, run `just gitnexus-docs-generate` and commit the result.

@@ -304,7 +304,7 @@ jobs:
             exit 0
           fi
           # [skip ci] so this push starts no further ci / ci-sast run.
-          git commit -m "ci(sast): refresh SAST reports [skip ci]"
+          git commit -m "ci(sast): refresh SAST reports [skip ci] 🤖"
           for attempt in 1 2 3; do
             git push origin HEAD:main && exit 0
             echo "push rejected (attempt ${attempt}); rebasing onto main"

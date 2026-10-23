@@ -226,3 +226,36 @@ Voir [les coûts communs](../README.md#coûts-et-économies).
 Références : [plages alias IP](https://docs.cloud.google.com/vpc/docs/configure-alias-ip-ranges),
 [dimensionnement Pods](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/flexible-pod-cidr),
 [backend GCS](https://developer.hashicorp.com/terraform/language/backend/gcs).
+
+## Historique C02 conservé lors de la fusion avec C04
+
+La documentation C02 décrivait initialement la stack VPC/subnet avant les ajouts
+Router, NAT et plages GKE. Elle confirmait les buckets existants en europe-west1,
+avec versioning, accès uniforme et prévention d'accès public. Le bucket PROD
+était vide avant son premier plan ; le plan initial proposait deux créations,
+sans modification ni suppression. Le contrôle DEV d'alors ne changeait rien,
+avec génération et empreinte MD5 du state identiques avant et après.
+Ces observations sont historiques : consulter l'état daté plus haut et produire
+un plan récent avant toute intervention.
+
+La sélection locale du backend était alors PROD à la fin des vérifications ;
+elle dépend aujourd'hui du dernier init effectué sur chaque PC. Toujours
+réinitialiser explicitement le bon backend et le workspace default. Les valeurs
+publiques des tfvars, le backend générique et la séparation des buckets sont
+conservés ; aucun credential n'est ajouté aux fichiers partagés.
+
+La révision C02 fusionnée a2b4732 utilise toujours prd.tfvars et backends/prd.hcl.
+Aucun renommage prod.tfvars/prod.hcl n'est présent dans cette révision. Le merge
+conserve donc ces chemins cohérents et les préfixes foundation/dev et
+foundation/prd, sans migration d'état. Si les fichiers sont renommés plus tard,
+mettre à jour les commandes et références sans renommer le projet GCP, les
+ressources ou le préfixe du state existant.
+
+Contrôle DEV au moment de cette fusion : le backend foundation/dev contient
+le VPC et le subnet ; l'inventaire GCP des Cloud Router est vide. Le plan prévoit
+donc deux créations (Router et NAT), zéro modification et zéro suppression.
+Ces deux définitions sont identiques dans les branches C02 et C04 : ce résultat
+ne vient pas de la résolution des conflits. Le VPC, la plage primaire et les
+secondaires existantes restent inchangés. Aucune création, application ou import
+n'est effectué pendant la fusion. Ce contrôle plus récent remplace les anciens
+constats de présence Router/NAT en DEV pour l'état observé lors du merge.

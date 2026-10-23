@@ -12,4 +12,14 @@ resource "google_compute_subnetwork" "subnet" {
   ip_cidr_range            = var.subnet_cidr
   network                  = google_compute_network.vpc.id
   private_ip_google_access = true
+
+  secondary_ip_range {
+    range_name    = "${var.subnet_name}-pods"
+    ip_cidr_range = var.gke_pods_cidr
+  }
+
+  secondary_ip_range {
+    range_name    = "${var.subnet_name}-services"
+    ip_cidr_range = var.gke_services_cidr
+  }
 }

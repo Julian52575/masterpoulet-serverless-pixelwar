@@ -1,96 +1,228 @@
-# Foundation: development and production networks
+# Foundation — réseau GCP partagé
 
-Run from this directory in PowerShell. This shared root manages only
-`google_compute_network.vpc` and `google_compute_subnetwork.subnet`. The Google
-provider explicitly selects `var.project_id`. No bucket, IAM, API activation,
-firewall, NAT, router or cluster is managed here. Existing default networks stay
-outside this state.
+[Guide principal](../README.md) · [Cluster GKE](../gke/README.md)
 
-| Setting | DEV | PROD |
+Cette stack prépare le réseau utilisé par GKE. Elle gère **quatre ressources**
+par environnement, pas de VM ni de cluster. Le même code utilise dev.tfvars ou
+prd.tfvars ; le provider cible explicitement var.project_id.
+
+## Ressources et responsabilités
+
+| Adresse Terraform | Fichier | Rôle |
 | --- | --- | --- |
-| Variables | `dev.tfvars` | `prd.tfvars` |
-| Project | `masterpoulet-dev` | `masterpoulet-prod` |
-| Subnet region | `europe-west1` | `europe-west3` |
-| `network_name` | `masterpoulet-dev-vpc` | `masterpoulet-prod-vpc` |
-| `subnet_name` | `masterpoulet-dev-vpc-subnet` | `masterpoulet-prod-vpc-subnet` |
-| `subnet_cidr` | `10.0.1.0/24` | `10.0.2.0/24` |
-| Backend config | `backends/dev.hcl` | `backends/prd.hcl` |
-| State bucket | `masterpoulet_bucket` | `masterpoulet_prod_bucket` |
-| State prefix | `foundation/dev` | `foundation/prd` |
-| Workspace | `default` | `default` |
+| google_compute_network.vpc | main.tf | VPC global en mode custom, sans subnets automatiques, routage dynamique REGIONAL. |
+| google_compute_subnetwork.subnet | main.tf | Subnet régional avec plage primaire, plages secondaires et Private Google Access. |
+| google_compute_router.router | router.tf | Cloud Router régional attaché au VPC. |
+| google_compute_router_nat.nat | nat.tf | Public NAT configuré sur ce Router, pour le seul subnet sélectionné. |
 
-Both existing buckets were verified in their respective projects on 2026-10-23:
-`europe-west1`, versioning enabled, uniform access and public access prevention.
-Bucket location is independent of subnet region. Before these checks, PROD's
-bucket was empty; DEV state existed at `foundation/dev/default.tfstate`.
-The existing `subnet_name` variable sets the subnet name explicitly.
-Private Google Access is enabled; it does not provide Cloud NAT.
+Le réseau GCP default, ses subnets et ses règles ne sont pas pris en charge par
+cette stack. Les projets, buckets, IAM, activations API, pare-feu, clusters et
+load balancers ne sont pas créés ici. GKE peut créer ses propres ressources
+techniques lors de son déploiement ; elles n'apparaissent pas comme ressources
+autonomes dans le code foundation.
 
-## Checks and environment selection
+### VPC, subnet et plages IP
 
-Authenticate with Google Application Default Credentials (ADC), without secrets
-in Git. The tfvars files are public configuration. Keep `.terraform.lock.hcl`
-tracked; `.terraform/`, states and `*.tfplan` files are ignored. Saved plans may
-contain sensitive data and must remain local.
+Le **VPC** est le réseau logique global. Le **subnet** réserve des adresses dans
+une région. La zone GKE europe-west1-b est dans europe-west1 : son cluster peut
+utiliser le subnet DEV régional sans créer un subnet par zone.
 
-Always pair a backend with its matching tfvars. Stop after a failed command.
-`-reconfigure` selects a backend without migrating state. Use the `default`
-workspace; do not migrate, import, force-unlock or disable locking to bypass an
-error. The active gcloud project does not select Terraform's project.
+La plage **primaire** sert notamment aux adresses des nœuds. Les secondaires
+nommées servent aux Pods et aux IP virtuelles de Services Kubernetes. Un Service
+ClusterIP n'est pas une IP publique ni un load balancer GCP.
+
+| Paramètre / variable | DEV | PROD |
+| --- | --- | --- |
+| project_id | masterpoulet-dev | masterpoulet-prod |
+| region | europe-west1 | europe-west3 |
+| network_name | masterpoulet-dev-vpc | masterpoulet-prod-vpc |
+| subnet_name | masterpoulet-dev-vpc-subnet | masterpoulet-prod-vpc-subnet |
+| subnet_cidr | 10.0.1.0/24 | 10.0.2.0/24 |
+| gke_pods_cidr | 10.16.0.0/21 | 10.32.0.0/21 |
+| gke_services_cidr | 10.16.8.0/24 | 10.32.8.0/24 |
+| Nom secondaire Pods, dérivé du subnet | masterpoulet-dev-vpc-subnet-pods | masterpoulet-prod-vpc-subnet-pods |
+| Nom secondaire Services, dérivé du subnet | masterpoulet-dev-vpc-subnet-services | masterpoulet-prod-vpc-subnet-services |
+| Router, dérivé du VPC | masterpoulet-dev-vpc-router | masterpoulet-prod-vpc-router |
+| NAT, dérivé du VPC | masterpoulet-dev-vpc-nat | masterpoulet-prod-vpc-nat |
+
+Les sept premières lignes sont les variables d'entrée de variables.tf. region
+a europe-west1 pour défaut ; les tfvars précisent la région de chaque cible.
+Les CIDR ont une validation de forme IPv4 canonique ; elle **ne prouve pas**
+l'absence de chevauchement avec tout le réseau de l'organisation.
+
+Un /21 contient 2 048 adresses et un /24 256 adresses. Le nombre de nœuds possibles
+dépend de max_pods_per_node : avec le réglage GKE actuel de 32, un bloc /26 est
+alloué par nœud, soit une capacité IP théorique de 32 nœuds dans le /21. Le pool
+reste toutefois limité à **deux nœuds** ; la mémoire/CPU limite aussi les Pods.
+L'ancienne estimation de huit nœuds utilisait la valeur GKE par défaut de 110
+Pods et un /24 par nœud ; elle ne décrivait pas la capacité de nos VM.
+
+Les plages des deux environnements sont distinctes, ce qui facilite une future
+interconnexion. Aucun peering/VPN n'est configuré par cette stack. L'inventaire
+historique des 86 plages DEV/PROD n'avait trouvé aucun chevauchement entre les
+plages choisies ; les réseaux externes n'étaient pas couverts. Refaire le contrôle
+avant peering, VPN, nouvelle plage ou extension.
+
+### Routes, Cloud Router et Cloud NAT
+
+| Concept | Explication concrète |
+| --- | --- |
+| Route VPC | Indique une destination et le prochain saut. Les routes du subnet et la route de sortie Internet avaient été observées automatiquement ; aucune google_compute_route n'est déclarée. |
+| Cloud Router | Porte la configuration NAT et peut échanger des routes dynamiques avec BGP ; aucun lien BGP/VPN n'est défini ici. Ce n'est pas une VM de routage. |
+| Cloud NAT | Traduit les IP privées des connexions sortantes vers des IP publiques partagées, puis permet les réponses. Il n'expose pas un serveur aux connexions entrantes spontanées. |
+
+Les nœuds privés utilisent la route de sortie VPC et le NAT pour télécharger
+des dépendances ou contacter GitHub sans IP publique individuelle. Le NAT ne
+remplace ni les routes ni les règles de pare-feu autorisant la sortie. Il ne
+fournit pas l'accès kubectl au control plane : celui-ci utilise l'endpoint DNS.
+
+nat.tf sélectionne **AUTO_ONLY** pour laisser Google allouer les IP de sortie,
+et **LIST_OF_SUBNETWORKS** avec une référence à google_compute_subnetwork.subnet.id.
+Le bloc source_ip_ranges_to_nat=["ALL_IP_RANGES"] couvre la plage primaire et
+toutes les secondaires de ce subnet, y compris celles ajoutées ensuite. Aucun
+changement NAT n'est nécessaire pour les plages GKE prévues. La région et le
+projet sont des variables, le Router est une référence Terraform.
+
+**Private Google Access**, activé sur le subnet, permet aux VM sans IP publique
+d'accéder aux API Google prises en charge. Ce n'est pas une sortie Internet
+générale ; Cloud NAT répond à ce second besoin.
+
+## Backend et outputs
+
+| Cible | Couple de fichiers | Bucket / préfixe |
+| --- | --- | --- |
+| DEV | backends/dev.hcl + dev.tfvars | masterpoulet_bucket / foundation/dev |
+| PROD | backends/prd.hcl + prd.tfvars | masterpoulet_prod_bucket / foundation/prd |
+
+Le backend générique est dans backend.tf. Les objets sont
+foundation/dev/default.tfstate et foundation/prd/default.tfstate dans leurs
+buckets respectifs, avec workspace default. Les buckets, conservés indépendamment
+du réseau, ne doivent pas être supprimés lors du nettoyage d'une démonstration.
+Voir [la sélection commune des backends](../README.md#sélectionner-la-stack-et-le-backend).
+
+| Output | Information |
+| --- | --- |
+| network_id | Identifiant pleinement qualifié du VPC. |
+| subnet_id | Identifiant pleinement qualifié du subnet. |
+| subnet_cidr | CIDR primaire effectif du subnet. |
+
+GKE utilise des data sources par nom, pas terraform_remote_state. Il n'existe
+pas d'output de nom de plage secondaire dans foundation ; ces noms sont dérivés
+du subnet et renseignés explicitement dans les tfvars GKE.
+
+## Vérification et exploitation
+
+Après les [installations et connexions du guide commun](../README.md#préparer-windows-et-les-identités),
+exécuter depuis la racine du dépôt, pour DEV :
 
 ```powershell
-terraform fmt -recursive
-terraform fmt -check -recursive
-if ($LASTEXITCODE -ne 0) { throw 'Formatting failed.' }
-
-# DEV: expected to leave the existing network unchanged.
+Set-Location infra/foundation
 terraform init -reconfigure -backend-config="backends/dev.hcl" -input=false
-if ($LASTEXITCODE -ne 0) { throw 'DEV init failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'Échec backend foundation DEV.' }
 $foundationWorkspace = terraform workspace show
-if ($LASTEXITCODE -ne 0 -or $foundationWorkspace -ne 'default') { throw 'Use the default workspace.' }
+if ($LASTEXITCODE -ne 0 -or $foundationWorkspace -ne 'default') { throw 'Workspace default requis.' }
+terraform fmt -check -recursive
+if ($LASTEXITCODE -ne 0) { throw 'Format incorrect.' }
 terraform validate
-if ($LASTEXITCODE -ne 0) { throw 'Validation failed.' }
-terraform plan -var-file="dev.tfvars" -input=false -lock-timeout=60s
-if ($LASTEXITCODE -ne 0) { throw 'DEV plan failed.' }
-
-# PROD: review exactly two creations, zero changes and zero deletions.
-terraform init -reconfigure -backend-config="backends/prd.hcl" -input=false
-if ($LASTEXITCODE -ne 0) { throw 'PROD init failed.' }
-$foundationWorkspace = terraform workspace show
-if ($LASTEXITCODE -ne 0 -or $foundationWorkspace -ne 'default') { throw 'Use the default workspace.' }
-terraform validate
-if ($LASTEXITCODE -ne 0) { throw 'Validation failed.' }
-terraform plan -var-file="prd.tfvars" -input=false -lock-timeout=60s -out="prd.tfplan"
-if ($LASTEXITCODE -ne 0) { throw 'PROD plan failed.' }
-terraform show prd.tfplan
+if ($LASTEXITCODE -ne 0) { throw 'Configuration invalide.' }
+terraform plan -var-file="dev.tfvars" -input=false -lock-timeout=60s -out="dev.tfplan"
+if ($LASTEXITCODE -ne 0) { throw 'Échec du plan.' }
+terraform show dev.tfplan
+terraform state list
+terraform output
 ```
 
-Before planning PROD, confirm the intended VPC/subnet have not been created by
-someone else. The GCP `default` network already exists and must not appear in the
-plan. Stop on an inaccessible bucket, unexpected state, duplicate target
-resources, replacement or deletion. Resolve ownership first.
+Pour PROD, reprendre la même procédure avec **backends/prd.hcl et prd.tfvars** ;
+ne pas lancer un plan PROD avec le backend DEV. Les étapes d'application avec
+confirmation sont [dans le guide principal](../README.md#planifier-et-déployer).
+Un apply peut supprimer/remplacer selon le plan : ne jamais le déduire du seul nom
+« foundation ». Examiner les dépendances GKE et les autres utilisateurs du VPC.
 
-After personally reviewing the saved PROD plan, apply manually:
+### Le script existant check.ps1
+
+check.ps1 est un assistant **DEV uniquement**. Il contrôle le format, vérifie le
+bucket, initialise, valide et prépare dev.tfplan. Il ne lance pas d'apply.
+`./check.ps1 -LocalOnly` initialise les providers avec -backend=false et valide,
+sans sélectionner un backend distant ni faire de plan. Cela peut nécessiter le
+registre des providers et ne garantit pas un plan GCP réussi.
+
+Le script distant n'utilise pas -reconfigure et appelle gcloud plutôt que
+explicitement gcloud.cmd. En cas de changement de backend ou de politique
+PowerShell restrictive, utiliser les commandes explicites ci-dessus. Ne pas
+modifier le script ni désactiver une politique du PC pour suivre ce guide.
+
+### Contrôler dans GCP
+
+Dans la console, sélectionner d'abord le bon projet :
+
+1. **VPC network → VPC networks** : nom du VPC, mode custom, subnet et région.
+2. Ouvrir le subnet : CIDR primaire, noms/CIDR secondaires, Private Google Access.
+3. **VPC network → Routes** : route du subnet et sortie par default Internet gateway ; aucune route manuelle supplémentaire n'est nécessaire pour ce montage.
+4. **Network Connectivity → Cloud Routers**, ou rechercher Cloud Router : région et VPC attendus.
+5. **Network services → Cloud NAT**, ou rechercher Cloud NAT : Router, AUTO_ONLY et plages du subnet sélectionné.
+6. **Cloud Storage → Buckets** : bucket et préfixe du state, sans éditer ni télécharger les states pour les partager.
+
+Contrôles DEV en lecture seule :
 
 ```powershell
-terraform apply prd.tfplan
+gcloud.cmd compute networks describe masterpoulet-dev-vpc --project=masterpoulet-dev
+gcloud.cmd compute networks subnets describe masterpoulet-dev-vpc-subnet --region=europe-west1 --project=masterpoulet-dev
+gcloud.cmd compute routers describe masterpoulet-dev-vpc-router --region=europe-west1 --project=masterpoulet-dev
+gcloud.cmd compute routers nats describe masterpoulet-dev-vpc-nat --router=masterpoulet-dev-vpc-router --region=europe-west1 --project=masterpoulet-dev
+gcloud.cmd compute routes list --project=masterpoulet-dev --filter='network:masterpoulet-dev-vpc'
 ```
 
-Reconfigure with `backends/dev.hcl` before the next DEV plan using `dev.tfvars`.
-The existing `check.ps1` helper is DEV-only and does not use `-reconfigure`;
-use the explicit commands above when switching environments.
-`check.ps1 -LocalOnly` only initializes providers and validates.
+## État vérifié et historique
 
-## Verified results: 2026-10-23
+Au **23 octobre 2026**, les quatre ressources sont présentes dans chacun des
+states foundation. Les inventaires ont confirmé les subnets et les Router/NAT
+DEV et PROD. Les secondaires sont présentes en DEV mais **absentes du subnet
+PROD**, bien qu'elles figurent dans prd.tfvars : une future application du plan
+foundation PROD sera nécessaire avant la stack GKE PROD. Aucun plan PROD récent
+n'a été exécuté pour cette documentation.
 
-Formatting and validation passed. DEV plan returned no changes (exit 0), and
-DEV state generation and MD5 were identical before and after. PROD plan returned
-2 additions, 0 changes, 0 deletions (detailed exit 2), exclusively the VPC and
-subnet in the table. Its saved plan is local `prd.tfplan`, ignored by Git.
-The local backend is now configured for PROD, workspace `default`.
-No apply, destroy, import or state migration was performed.
+Les noms et plages primaires sont conservés. Ajouter des plages secondaires
+inutilisées est normalement une modification **en place** du subnet, pas une
+recréation. Le plan DEV historique lors de leur préparation indiquait
+0 ajout, 1 modification, 0 suppression. Ne pas réutiliser ce résumé comme résultat
+actuel : elles sont maintenant appliquées en DEV. Une suppression/modification
+de plage déjà utilisée par GKE est une autre opération, potentiellement bloquée
+ou perturbatrice.
 
-Follow `CONTRIBUTOR.md` for branch/review conventions. Share the same backend and
-workspace within each environment. GCS locking serializes operations; coordinate
-with teammates and never let two states manage one resource. Dated updates in
-`AUDIT.md` supersede historical bootstrap findings.
+Autres résultats historiques utiles : avant Router/NAT et secondaires, DEV avait
+un plan sans changement ; la préparation initiale PROD montrait deux créations
+VPC/subnet. Le bucket PROD était alors vide. Ces constats ont évolué et ne
+signifient pas qu'il faille recréer les ressources aujourd'hui.
+[AUDIT.md](AUDIT.md) conserve les audits des 22–23 octobre, les erreurs de
+facturation/API/backend et leurs résolutions successives. Ses noms de buckets
+proposés et blocages anciens ne remplacent pas les backends actuellement versionnés.
+
+## Suppression et coûts
+
+**Supprimer GKE et vérifier tous les autres consommateurs avant foundation.**
+Un destroy foundation vise les quatre ressources réseau de son state, y compris
+NAT : les machines privées restantes perdraient leur accès sortant. GCP peut
+refuser la suppression de subnets/VPC encore utilisés ; ce refus est un signal
+à traiter, pas une raison de forcer la suppression. Les buckets sont hors de
+cette stack et doivent être conservés.
+
+Prévisualisation DEV, depuis ce dossier, après init DEV et revue des dépendances :
+
+```powershell
+terraform plan -destroy -var-file="dev.tfvars" -input=false -lock-timeout=60s -out="dev-destroy.tfplan"
+if ($LASTEXITCODE -ne 0) { throw 'Échec plan de suppression foundation.' }
+terraform show dev-destroy.tfplan
+```
+
+Ce bloc ne supprime rien. La [procédure commune](../README.md#détruire-et-recréer)
+décrit la confirmation opérateur avant toute application de nettoyage. Pour
+recréer, suivre init/plan/apply ordinaires puis recréer GKE, sans nouveau state.
+
+Les plages privées n'ajoutent pas de VM ou de disque. Public NAT, ses IPv4, le
+trafic et le stockage des states peuvent en revanche coûter. Après suppression
+de GKE seule, foundation reste : contrôler l'usage NAT et les IP restantes.
+Voir [les coûts communs](../README.md#coûts-et-économies).
+
+Références : [plages alias IP](https://docs.cloud.google.com/vpc/docs/configure-alias-ip-ranges),
+[dimensionnement Pods](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/flexible-pod-cidr),
+[backend GCS](https://developer.hashicorp.com/terraform/language/backend/gcs).

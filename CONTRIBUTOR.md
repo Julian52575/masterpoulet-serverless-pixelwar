@@ -76,6 +76,15 @@ Providing dev tools for local testing is encouraged, like `api-scripts/`, use py
 | `helm` / `kubectl` | Work with Kubernetes manifests and clusters |
 | `jq` | Inspect JSON output, such as `terraform show -json` |
 
+## Troubleshooting
+
+Record every incident and its fix in [`docs/Troubleshoot.md`](docs/Troubleshoot.md), such as the 23 October router and NAT deletion.
+
+- Each entry names the **error** (what was observed), the **cause** and the **solution**.
+- Write it so someone who wasn't there can recognise the symptom and fix it.
+- **No duplicates:** if the cause or solution matches an existing entry, add the new occurrence to that entry instead of creating another one.
+- Entries may reference earlier ones, for example "same cause as [Missing router and NAT](#missing-router-and-nat-in-dev)".
+
 ## CI
 
 Every PR runs `ci.yml` (lint, tests, Docker and compose lint, full-stack boot test, GitNexus) and `ci-sast.yml` (SonarQube, CodeQL). If GitNexus reports a stale `docs/gitnexus/api-links.md`, run `just gitnexus-docs-generate` and commit the result.

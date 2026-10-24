@@ -3001,7 +3001,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/app.js",
+                      "uri": "backend/src/grid.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 0
                     }
@@ -3030,7 +3030,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/events.js",
+                      "uri": "backend/src/app.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 1
                     }
@@ -3088,7 +3088,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/grid.js",
+                      "uri": "backend/src/events.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 3
                     }
@@ -3291,7 +3291,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/App.tsx",
+                      "uri": "frontend/src/App.test.tsx",
                       "uriBaseId": "%SRCROOT%",
                       "index": 10
                     }
@@ -3320,7 +3320,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/App.test.tsx",
+                      "uri": "frontend/src/App.tsx",
                       "uriBaseId": "%SRCROOT%",
                       "index": 11
                     }
@@ -3465,9 +3465,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/env.js",
+                      "uri": "backend/src/palette.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 2
+                      "index": 4
                     }
                   }
                 }
@@ -3491,9 +3491,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/palette.js",
+                      "uri": "backend/src/env.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 4
+                      "index": 2
                     }
                   }
                 }
@@ -3545,7 +3545,7 @@
                     "artifactLocation": {
                       "uri": "backend/src/events.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 1
+                      "index": 3
                     }
                   }
                 }
@@ -3597,33 +3597,7 @@
                     "artifactLocation": {
                       "uri": "backend/src/grid.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 3
-                    }
-                  }
-                }
-              ],
-              "message": {
-                "text": ""
-              },
-              "level": "none",
-              "descriptor": {
-                "id": "cli/expected-extracted-files/javascript",
-                "index": 0
-              },
-              "properties": {
-                "formattedMessage": {
-                  "text": ""
-                }
-              }
-            },
-            {
-              "locations": [
-                {
-                  "physicalLocation": {
-                    "artifactLocation": {
-                      "uri": "backend/src/store.js",
-                      "uriBaseId": "%SRCROOT%",
-                      "index": 8
+                      "index": 0
                     }
                   }
                 }
@@ -3675,7 +3649,33 @@
                     "artifactLocation": {
                       "uri": "backend/src/app.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 0
+                      "index": 1
+                    }
+                  }
+                }
+              ],
+              "message": {
+                "text": ""
+              },
+              "level": "none",
+              "descriptor": {
+                "id": "cli/expected-extracted-files/javascript",
+                "index": 0
+              },
+              "properties": {
+                "formattedMessage": {
+                  "text": ""
+                }
+              }
+            },
+            {
+              "locations": [
+                {
+                  "physicalLocation": {
+                    "artifactLocation": {
+                      "uri": "backend/src/store.js",
+                      "uriBaseId": "%SRCROOT%",
+                      "index": 8
                     }
                   }
                 }
@@ -3805,7 +3805,7 @@
                     "artifactLocation": {
                       "uri": "frontend/src/App.tsx",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 10
+                      "index": 11
                     }
                   }
                 }
@@ -3857,7 +3857,7 @@
                     "artifactLocation": {
                       "uri": "frontend/src/App.test.tsx",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 11
+                      "index": 10
                     }
                   }
                 }
@@ -3881,7 +3881,7 @@
                 "text": ""
               },
               "level": "none",
-              "timeUtc": "2026-10-23T13:04:51.644Z",
+              "timeUtc": "2026-10-24T13:29:45.747Z",
               "descriptor": {
                 "id": "codeql-action/overlay-disabled",
                 "index": 2
@@ -3903,14 +3903,14 @@
       "artifacts": [
         {
           "location": {
-            "uri": "backend/src/app.js",
+            "uri": "backend/src/grid.js",
             "uriBaseId": "%SRCROOT%",
             "index": 0
           }
         },
         {
           "location": {
-            "uri": "backend/src/events.js",
+            "uri": "backend/src/app.js",
             "uriBaseId": "%SRCROOT%",
             "index": 1
           }
@@ -3924,7 +3924,7 @@
         },
         {
           "location": {
-            "uri": "backend/src/grid.js",
+            "uri": "backend/src/events.js",
             "uriBaseId": "%SRCROOT%",
             "index": 3
           }
@@ -3973,14 +3973,14 @@
         },
         {
           "location": {
-            "uri": "frontend/src/App.tsx",
+            "uri": "frontend/src/App.test.tsx",
             "uriBaseId": "%SRCROOT%",
             "index": 10
           }
         },
         {
           "location": {
-            "uri": "frontend/src/App.test.tsx",
+            "uri": "frontend/src/App.tsx",
             "uriBaseId": "%SRCROOT%",
             "index": 11
           }
@@ -4055,7 +4055,7 @@
         "codeqlConfigSummary": {
           "disableDefaultQueries": false
         },
-        "jobRunUuid": "01ff6103-1a50-431c-b9be-d7b5525326c3"
+        "jobRunUuid": "51e6c65d-97dc-4b52-9ea8-1a41ef38dbe0"
       }
     }
   ]

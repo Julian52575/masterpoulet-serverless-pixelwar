@@ -166,3 +166,45 @@ database-pipe DATABASE_FILE:
     [[ -n "$pg" ]] || { echo "could not find the $service container" >&2; exit 1; }
     {{tool}} exec -i "$pg" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" < {{DATABASE_FILE}}
     echo "Piped {{DATABASE_FILE}} into the database"
+
+#### Dependencies
+
+# Run `npm audit fix --package-lock-only` in frontend and backend, abort if vulnerabilities remain, then commit the lockfile changes
+audit-fix:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dirs=(frontend backend)
+    # name@version for every package in the lockfile, to diff before/after
+    lockversions() { node -e 'const p=require(process.argv[1]).packages||{};for(const[k,v]of Object.entries(p))if(k&&v.version)console.log(k.replace(/^.*node_modules\//,"")+"@"+v.version)' "$PWD/$1/package-lock.json" | sort -u; }
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+    for d in "${dirs[@]}"; do
+        lockversions "$d" > "$tmp/$d.before"
+        # the install pass below rewrites the whole lockfile, so leave clean projects alone
+        if (cd "$d" && npm audit >/dev/null); then echo "$d: no vulnerabilities, skipping"; continue; fi
+        # lockfile-only: reconciling with node_modules flip-flops optional platform deps.
+        # The install pass normalizes the fixed tree, else the next run rewrites it again.
+        (cd "$d" && npm audit fix --package-lock-only && npm install --package-lock-only)
+    done
+    for d in "${dirs[@]}"; do
+        (cd "$d" && npm audit) || { echo "❌ vulnerabilities remain in $d -- not committing" >&2; exit 1; }
+    done
+    body=""
+    for d in "${dirs[@]}"; do
+        lockversions "$d" > "$tmp/$d.after"
+        # a package can exist in several versions, so compare the whole version set per name
+        changes="$(awk -F@ '
+            { n=$0; sub(/@[^@]*$/, "", n); v=$0; sub(/^.*@/, "", v) }
+            FNR==NR { b[n] = b[n] (b[n] ? ", " : "") v; next }
+            { a[n] = a[n] (a[n] ? ", " : "") v }
+            END { for (n in a) { old = (n in b) ? b[n] : "(new)"; if (a[n] != old) print "- " n ": " old " -> " a[n] }
+                  for (n in b) if (!(n in a)) print "- " n ": " b[n] " -> (removed)" }
+            ' "$tmp/$d.before" "$tmp/$d.after" | sort)"
+        if [[ -n "$changes" ]]; then body+="${d}:"$'\n'"${changes}"$'\n\n'; fi
+    done
+    mapfile -t files < <(git status --porcelain -- {frontend,backend}/package.json {frontend,backend}/package-lock.json | awk '{print $2}')
+    if [[ ${#files[@]} -eq 0 ]]; then echo "✅ nothing to fix"; exit 0; fi
+    git add -- "${files[@]}"
+    git commit -sS -m "chore: npm audit fix" -m "${body:-No dependency version changes.}" -- "${files[@]}"
+    git status | head -n 3 || true  # pipefail would trip on SIGPIPE
+    git log --oneline -2
+    git --no-pager diff HEAD~1 HEAD

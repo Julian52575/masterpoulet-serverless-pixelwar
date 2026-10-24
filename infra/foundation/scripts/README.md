@@ -32,7 +32,7 @@ python3 -m unittest discover -s infra/foundation/scripts   # tests, no credentia
 | `prod` | `prod` | `masterpoulet-prod` |
 
 Requires Python ≥ 3.10 and, for live checks, `gcloud` authenticated as an account
-with `compute.networks.list`, `compute.subnetworks.list`,
+with `compute.networks.list`, `compute.subnetworks.list`, `compute.routers.list`,
 `resourcemanager.projects.get` and `serviceusage.services.list` (for example,
 `roles/viewer`). Run `gcloud auth login` first.
 
@@ -45,6 +45,8 @@ supported type has an entry in `TYPE_SPECS`:
 | --- | --- | --- |
 | `google_compute_network` | `compute networks list` | name, auto_create_subnetworks, routing_mode |
 | `google_compute_subnetwork` | `compute networks subnets list` | name, region, ip_cidr_range, network (by name), private_ip_google_access |
+| `google_compute_router` | `compute routers list` | name, region, network (by name) |
+| `google_compute_router_nat` | `compute routers list` (nested `nats`) | name, region, router (by name), nat_ip_allocate_option, source_subnetwork_ip_ranges_to_nat |
 
 The script also reads the project (`projects describe`) and the list of enabled
 services. Every live resource of a declared type that does not match the config

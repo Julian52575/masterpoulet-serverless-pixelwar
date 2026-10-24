@@ -293,6 +293,13 @@ class TypeSpec:
     list_args: tuple[str, ...]
     regional: bool
     attrs: tuple[AttrSpec, ...]
+    extract: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None
+
+
+def _router_nats(routers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """NATs are only exposed nested in their router; lift them out with the router's region and name."""
+    return [{**n, "region": r.get("region"), "router": r.get("name")}
+            for r in routers if isinstance(r, dict) for n in r.get("nats") or []]
 
 
 # Only types declared in the config are listed; add a spec to support a new type.
@@ -309,6 +316,19 @@ TYPE_SPECS: dict[str, TypeSpec] = {
          AttrSpec("ip_cidr_range", "ipCidrRange"),
          AttrSpec("network", "network", _basename),
          AttrSpec("private_ip_google_access", "privateIpGoogleAccess"))),
+    "google_compute_router": TypeSpec(
+        "compute.googleapis.com", ("compute", "routers", "list"), True,
+        (AttrSpec("name", "name"),
+         AttrSpec("region", "region", _basename),
+         AttrSpec("network", "network", _basename))),
+    "google_compute_router_nat": TypeSpec(
+        "compute.googleapis.com", ("compute", "routers", "list"), True,
+        (AttrSpec("name", "name"),
+         AttrSpec("region", "region", _basename),
+         AttrSpec("router", "router"),
+         AttrSpec("nat_ip_allocate_option", "natIpAllocateOption"),
+         AttrSpec("source_subnetwork_ip_ranges_to_nat", "sourceSubnetworkIpRangesToNat")),
+        _router_nats),
 }
 
 
@@ -396,19 +416,22 @@ def inspect_cloud(project_id: str, types: list[str], gcloud: Callable[[list[str]
     if isinstance(res, list):
         live.services = sorted(s.get("config", {}).get("name") or _basename(s.get("name")) for s in res)
 
+    listings: dict[tuple[str, ...], Any] = {}  # router and NAT share one listing
     for t in types:
         spec = TYPE_SPECS.get(t)
         if not spec:
             live.items[t], live.failures[t] = None, "unsupported_type"
             continue
-        res = call(t, [*spec.list_args, f"--project={project_id}"])
+        if spec.list_args not in listings:
+            listings[spec.list_args] = call(t, [*spec.list_args, f"--project={project_id}"])
+        res = listings[spec.list_args]
         if isinstance(res, GcloudError):
             live.items[t], live.failures[t] = None, res.code
         elif not isinstance(res, list):
             live.items[t], live.failures[t] = None, "malformed_output"
             live.errors.append({"source": t, "code": "malformed_output", "message": "expected a JSON list"})
         else:
-            live.items[t] = res
+            live.items[t] = spec.extract(res) if spec.extract else res
     return live
 
 

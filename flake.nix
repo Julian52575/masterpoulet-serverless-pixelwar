@@ -39,6 +39,9 @@
             util-linux # setsid -- detaches the fallback API service from the tty
             # infra tooling
             git
+            check-jsonschema # validates workflows: --builtin-schema vendor.github-workflows
+            actionlint
+            shellcheck # actionlint uses it to lint `run:` scripts
           ] ++ (import ./nix/tools.nix { inherit pkgs; }).all ++ [
           ];
 

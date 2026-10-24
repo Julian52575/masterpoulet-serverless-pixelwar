@@ -56,6 +56,26 @@ Then add the same key on GitHub (Settings → SSH and GPG keys) as a **Signing K
 
 Providing dev tools for local testing is encouraged, like `api-scripts/`, use python instead of a os-specific scripting language.
 
+### Local testing tools
+
+`nix develop` provides these, so CI checks can be run before pushing:
+
+| Tool | Use it to |
+|---|---|
+| `just` | Run the project recipes (`just` lists them) |
+| `podman` / `podman-compose` | Run the full stack locally (`just up`) |
+| `node` / `npm` | Lint and test `backend/` and `frontend/` |
+| `terraform` | `init` / `plan` the infra in `infra/foundation` against a backend |
+| `gcloud` | Authenticate and inspect GCP. `gcloud auth print-access-token` can feed `GOOGLE_OAUTH_ACCESS_TOKEN` for a local `terraform plan` |
+| `python3 infra/foundation/scripts/check.py` | Compare Terraform config with live GCP, read-only (`--env dev\|prod\|all`) |
+| `zizmor` | Audit workflows for security issues, same version as CI (`zizmor .github/workflows/`) |
+| `actionlint` | Lint workflows: syntax, expressions, inputs, and `run:` scripts via shellcheck (`actionlint`) |
+| `shellcheck` | Lint shell scripts |
+| `check-jsonschema` | Validate workflows against GitHub's schema (`check-jsonschema --builtin-schema vendor.github-workflows .github/workflows/*.yml`) |
+| `pin-github-action` | Pin `uses:` refs in workflows to commit SHAs |
+| `helm` / `kubectl` | Work with Kubernetes manifests and clusters |
+| `jq` | Inspect JSON output, such as `terraform show -json` |
+
 ## CI
 
 Every PR runs `ci.yml` (lint, tests, Docker and compose lint, full-stack boot test, GitNexus) and `ci-sast.yml` (SonarQube, CodeQL). If GitNexus reports a stale `docs/gitnexus/api-links.md`, run `just gitnexus-docs-generate` and commit the result.

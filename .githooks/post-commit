@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Run `just audit-fix` quietly after each commit. Never fails the commit: it
+# already exists when post-commit runs.
+set -uo pipefail
+
+# the recipe's own commit fires this hook again
+[ -n "${AUDIT_FIX_HOOK:-}" ] && exit 0
+# skip mid-rebase/cherry-pick (detached HEAD) and when just is unavailable
+git symbolic-ref -q HEAD >/dev/null || exit 0
+command -v just >/dev/null || exit 0
+
+locks=(frontend/package.json frontend/package-lock.json backend/package.json backend/package-lock.json)
+# don't sweep the user's own lockfile edits into the audit commit
+[ -z "$(git status --porcelain -- "${locks[@]}")" ] || exit 0
+
+before="$(git rev-parse HEAD)"
+if ! log="$(AUDIT_FIX_HOOK=1 just audit-fix 2>&1)"; then
+  # the recipe leaves the fixed lockfiles behind when it aborts
+  git checkout -q -- "${locks[@]}" 2>/dev/null
+  echo "⚠️  audit-fix hook: vulnerabilities remain, run 'just audit-fix' to see them" >&2
+  echo "$log" | grep -E 'vulnerabilit' | tail -n 3 >&2
+  exit 0
+fi
+[ "$(git rev-parse HEAD)" != "$before" ] &&
+  echo "🔒 audit-fix hook: committed $(git log -1 --format='%h "%s"')"
+exit 0

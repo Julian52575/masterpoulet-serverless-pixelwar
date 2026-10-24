@@ -56,7 +56,7 @@ vérifie que sa zone appartient à la région du subnet.
 | --- | --- |
 | providers.tf / .terraform.lock.hcl | Terraform >=1.6 et <2 ; Google ~>7.0 verrouillé en 7.46.1 ; projet/région/zone explicites. |
 | backend.tf / backends/*.hcl | Backend GCS partiel et sélection d'environnement. |
-| variables.tf / dev.tfvars / prd.tfvars | Types, validations et valeurs d'environnement. |
+| variables.tf / dev.tfvars / prod.tfvars | Types, validations et valeurs d'environnement. |
 | network.tf | Data sources VPC/subnet ; vérifie appartenance au VPC, présence de deux secondaires distinctes et Private Google Access. |
 | iam.tf | google_service_account.nodes et google_project_iam_member.nodes. |
 | cluster.tf | google_container_cluster.gke ; attend le rôle IAM des nœuds. |
@@ -135,9 +135,12 @@ reste ensuite. Il n'y a pas de second pool permanent.
 | Cible | Couple | Bucket / préfixe |
 | --- | --- | --- |
 | DEV | backends/dev.hcl + dev.tfvars | masterpoulet_bucket / gke/dev |
-| PROD | backends/prd.hcl + prd.tfvars | masterpoulet_prod_bucket / gke/prd |
+| PROD | backends/prod.hcl + prod.tfvars | masterpoulet_prod_bucket / gke/prd |
 
 Workspace default, objets gke/dev/default.tfstate et gke/prd/default.tfstate.
+Les fichiers PROD s'appellent désormais prod.tfvars et backends/prod.hcl ; le
+préfixe historique gke/prd reste volontairement inchangé. Ce renommage de fichiers
+ne migre pas le state et ne modifie aucune ressource GCP.
 Le réseau garde son state foundation indépendant. GKE ne possède que quatre
 ressources managées ; les deux lectures réseau sont des data sources.
 

@@ -49,14 +49,35 @@ NET = {"name": "p-dev-vpc", "autoCreateSubnetworks": False, "routingConfig": {"r
        "selfLink": "https://x/projects/p-dev/global/networks/p-dev-vpc"}
 SUB = {"name": "sub", "region": "https://x/regions/europe-west1", "ipCidrRange": "10.0.1.0/24",
        "network": "https://x/global/networks/p-dev-vpc", "privateIpGoogleAccess": True}
+ROUTER = {"name": "rt", "region": "https://x/regions/europe-west1",
+          "network": "https://x/global/networks/p-dev-vpc",
+          "nats": [{"name": "nat", "natIpAllocateOption": "AUTO_ONLY",
+                    "sourceSubnetworkIpRangesToNat": "LIST_OF_SUBNETWORKS"}]}
+ROUTER_TF = """
+resource "google_compute_router" "router" {
+  name    = "rt"
+  region  = var.region
+  network = google_compute_network.vpc.id
+}
+resource "google_compute_router_nat" "nat" {
+  name                               = "nat"
+  region                             = var.region
+  router                             = google_compute_router.router.name
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+}
+"""
 DEFAULT_NET = {"name": "default", "autoCreateSubnetworks": True}
 
 
-def fake_gcloud(nets: Any = None, subs: Any = None, fail: dict[str, str] | None = None):
+def fake_gcloud(nets: Any = None, subs: Any = None, routers: Any = None, fail: dict[str, str] | None = None,
+                calls: list[str] | None = None):
     fail = fail or {}
 
     def run(args: list[str]) -> Any:
         key = " ".join(a for a in args if not a.startswith("--"))
+        if calls is not None:
+            calls.append(key)
         for k, code in fail.items():
             if key.startswith(k):
                 raise check.GcloudError(code, "boom")
@@ -68,6 +89,8 @@ def fake_gcloud(nets: Any = None, subs: Any = None, fail: dict[str, str] | None 
             return [NET] if nets is None else nets
         if key == "compute networks subnets list":
             return [SUB] if subs is None else subs
+        if key == "compute routers list":
+            return [ROUTER] if routers is None else routers
         raise AssertionError(key)
 
     return run
@@ -176,6 +199,29 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(r["status"], "in_sync")
         self.assertEqual(r["unverified"], ["routing_mode"])
         self.assertEqual(out["status"], "partial")
+
+    def test_router_and_nat_in_sync_from_one_listing(self):
+        r = Repo()
+        (r.root / "router.tf").write_text(ROUTER_TF)
+        calls: list[str] = []
+        with mock.patch.object(check, "IGNORE_FILE", r.root / "ignore.json"):
+            out = check.inspect_env("dev", r.root, "all", fake_gcloud(calls=calls))
+        res = by_addr(out)
+        self.assertEqual(res["google_compute_router.router"]["status"], "in_sync")
+        self.assertEqual(res["google_compute_router_nat.nat"]["status"], "in_sync")
+        self.assertEqual(res["google_compute_router_nat.nat"]["id"], "p-dev/europe-west1/nat")
+        self.assertEqual(calls.count("compute routers list"), 1)
+
+    def test_nat_drift_and_missing(self):
+        r = Repo()
+        (r.root / "router.tf").write_text(ROUTER_TF)
+        out = r.run(routers=[{**ROUTER, "nats": [{**ROUTER["nats"][0], "natIpAllocateOption": "MANUAL_ONLY"}]}])
+        nat = by_addr(out)["google_compute_router_nat.nat"]
+        self.assertEqual(nat["status"], "drifted")
+        self.assertEqual(nat["evidence"][0]["field"], "nat_ip_allocate_option")
+        out = r.run(routers=[{**ROUTER, "nats": []}])
+        self.assertEqual(by_addr(out)["google_compute_router_nat.nat"]["status"], "missing_in_cloud")
+        self.assertEqual(by_addr(out)["google_compute_router.router"]["status"], "in_sync")
 
     def test_unsupported_type_is_unknown(self):
         r = Repo()

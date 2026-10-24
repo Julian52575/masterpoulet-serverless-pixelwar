@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Require a sign-off (`Signed-off-by:` trailer) on every commit, and warn when
-# cryptographic signing is not set up. Local feedback only -- `--no-verify`
-# skips it. The commit does not exist yet when commit-msg runs, so the
-# signature itself cannot be verified here; we can only check the config.
+# Require a sign-off (`Signed-off-by:` trailer) and cryptographic signing on
+# every commit (`git commit -sS`). Local feedback only -- `--no-verify` skips
+# it. The commit does not exist yet when commit-msg runs, so the signature
+# itself cannot be verified, and a one-off `-S` is invisible here; we can only
+# require signing to be on in the config.
 set -euo pipefail
 
 header="$(grep -vE '^[[:space:]]*(#|$)' "$1" | head -n1 || true)"
@@ -10,15 +11,17 @@ case "$header" in
   "Merge "* | "Revert "* | fixup!* | squash!* | "") exit 0 ;;
 esac
 
-if [ "$(git config --get commit.gpgsign || true)" != "true" ]; then
+if [ "$(git config --get commit.gpgsign || true)" != "true" ] ||
+  [ -z "$(git config --get user.signingkey || true)" ]; then
   {
-    echo "⚠ commits are not cryptographically signed (commit.gpgsign is off)."
+    echo "✗ commit rejected: commits must be signed (commit.gpgsign and user.signingkey)"
     echo "  enable SSH signing once:"
     echo "    git config --global gpg.format ssh"
     echo "    git config --global user.signingkey ~/.ssh/id_ed25519.pub"
     echo "    git config --global commit.gpgsign true"
     echo "  then add the key on GitHub as a *Signing Key*."
   } >&2
+  exit 1
 fi
 
 if ! grep -qiE '^Signed-off-by: .+ <.+>$' "$1"; then

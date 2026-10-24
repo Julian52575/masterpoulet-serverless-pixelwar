@@ -58,10 +58,10 @@ par `latest` ou une plage implicite.
 | Fichier | Rôle |
 | --- | --- |
 | `backend.tf` | Backend GCS partiel, sans credential. |
-| `backends/dev.hcl`, `backends/prd.hcl` | Buckets existants et préfixes propres aux runners. |
+| `backends/dev.hcl`, `backends/prod.hcl` | Buckets existants et préfixes propres aux runners. |
 | `providers.tf` | Provider Helm et contexte kubeconfig explicite dérivé du projet, de la zone et du cluster. |
 | `variables.tf` | Paramètres du cluster existant, version stable et ressources du contrôleur. |
-| `dev.tfvars`, `prd.tfvars` | Cibles DEV et PROD ; PROD est préparé uniquement. |
+| `dev.tfvars`, `prod.tfvars` | Cibles DEV et PROD ; PROD est préparé uniquement. |
 | `controller.tf` | Release officielle, réplique, placement, sécurité et ressources. |
 | `outputs.tf` | Release, namespace, version, service account et contexte utilisés. |
 | `.terraform.lock.hcl` | Version et empreintes du provider à versionner. |
@@ -76,6 +76,9 @@ Ces préfixes sont distincts de **foundation/dev**, **foundation/prd**,
 **gke/dev** et **gke/prd**. Aucun bucket nouveau, migration de state ou accès
 au backend PROD n'est nécessaire pour cette préparation DEV. Le state initial
 runners DEV est vide. Le backend PROD n'a pas été initialisé ni planifié.
+
+Les fichiers PROD sont nommés `prod.tfvars` et `backends/prod.hcl` ; le préfixe
+historique `runners/prd` et le bucket restent inchangés, sans migration d'état.
 
 ## Connexion GKE sans secret dans Terraform
 

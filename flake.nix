@@ -2,8 +2,9 @@
   description = "Dev environment template: Nix + Just + rootless Podman + Traefik";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+  inputs.nixpkgs-darwin-podman.url = "github:NixOS/nixpkgs/nixos-25.11";
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, nixpkgs-darwin-podman }:
     let
       systems = [
         "x86_64-linux"
@@ -14,10 +15,13 @@
       forAllSystems = f:
         nixpkgs.lib.genAttrs systems (system:
           f nixpkgs.legacyPackages.${system}
+            (if nixpkgs.lib.hasSuffix "-darwin" system
+              then nixpkgs-darwin-podman.legacyPackages.${system}
+              else nixpkgs.legacyPackages.${system})
         );
     in
     {
-      devShells = forAllSystems (pkgs: {
+      devShells = forAllSystems (pkgs: podmanPkgs: {
         default = pkgs.mkShellNoCC {
           # Everything a bare `nix develop` needs so `just up` works with no
           # host container packages installed. Add project tooling here.
@@ -28,19 +32,20 @@
             nodejs_24
             openssl # dev shell seeds .env's SESSION_SECRET (openssl rand -hex 32)
             # rootless podman stack
-            podman
-            podman-compose
-            fuse-overlayfs # rootless overlay storage driver
-            crun # OCI runtime (containers.conf pins runtime = "crun")
-            slirp4netns # rootless networking / port publishing
-            passt # pasta, podman's newer rootless net backend
-            catatonit # lightweight PID 1 for `--init` / compose
+            podmanPkgs.podman
+            podmanPkgs.podman-compose
             curl # the shellHook pings the podman API socket with it
-            util-linux # setsid -- detaches the fallback API service from the tty
             # infra tooling
             git
-          ] ++ (import ./nix/tools.nix { inherit pkgs; }).all ++ [
-          ];
+          ] ++ (import ./nix/tools.nix { inherit pkgs; }).all
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+              fuse-overlayfs # rootless overlay storage driver
+              crun # OCI runtime (containers.conf pins runtime = "crun")
+              slirp4netns # rootless networking / port publishing
+              passt # pasta, podman's newer rootless net backend
+              catatonit # lightweight PID 1 for `--init` / compose
+              util-linux # setsid -- detaches the fallback API service from the tty
+            ]);
 
           shellHook = ''
             if [ ! -e .env ] && [ -f .env.example ]; then
@@ -57,32 +62,36 @@
             # ==============================================================
             # macOS
             #
-            # Podman is installed on the host (MacPorts).
-            # Podman runs containers inside a Podman machine.
-            #
             # Docker-compatible tools (docker-compose, testcontainers,
             # etc.) can communicate with Podman through DOCKER_HOST.
             # ==============================================================
-            
-            if [ "$(uname -s)" = "Darwin" ]; then
-              export TMPDIR="/tmp/podman-tmp"
-              mkdir -p "$TMPDIR"
-              if ! command -v podman >/dev/null 2>&1; then
-                echo "podman: Podman is not installed or not available in PATH." >&2
-                echo "podman: install Podman with MacPorts." >&2
-                exit 1
-              fi
 
-              echo "podman: using host Podman: $(podman --version)" | lolcat
+            if [ "$(uname -s)" = "Darwin" ]; then
+              export TMPDIR="$(/usr/bin/getconf DARWIN_USER_TEMP_DIR)"
+              mkdir -p "$TMPDIR"
+              export PODMAN_COMPOSE_PROVIDER="$(command -v podman-compose)"
+
+              echo "podman: using $(podman --version)" | lolcat
 
               # ------------------------------------------------------------
               # Podman machine
               # ------------------------------------------------------------
 
+              if ! podman machine inspect podman-machine-default >/dev/null 2>&1; then
+                echo "podman: creating the Podman machine (first run only)" | lolcat
+                if ! podman machine init --cpus 4 --memory 4096 --disk-size 50; then
+                  echo "podman: could not create the Podman machine." >&2
+                  exit 1
+                fi
+              fi
+
               if ! podman info >/dev/null 2>&1; then
-                echo "podman: Podman machine is not running." >&2
-                echo "podman: start it with: podman machine start" >&2
-                exit 1
+                echo "podman: starting the Podman machine" | lolcat
+                if ! podman machine start >/dev/null; then
+                  echo "podman: could not start the Podman machine." >&2
+                  echo "podman: see 'podman machine start' output for details." >&2
+                  exit 1
+                fi
               fi
 
               echo "podman: machine is running" | lolcat
@@ -96,10 +105,9 @@
 
               if [ -z "''${PODMAN_NO_SOCKET:-}" ]; then
 
-                # On macOS, podman info retourne le socket Linux DANS la VM.
-                # Il faut utiliser le socket exposé sur macOS par podman machine.
-
-                podman_sock="/tmp/podman-tmp/podman/podman-machine-default-api.sock"
+                podman_sock="$(podman machine inspect podman-machine-default --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null)"
+                vm_sock="$(podman info --format '{{.Host.RemoteSocket.Path}}' 2>/dev/null)"
+                vm_sock="''${vm_sock#unix://}"
 
                 if [ -z "$podman_sock" ]; then
                   echo "podman: unable to determine machine API socket." >&2
@@ -112,7 +120,7 @@
                 fi
 
                 export DOCKER_HOST="unix://$podman_sock"
-                export DOCKER_SOCK="$podman_sock"
+                export DOCKER_SOCK="''${vm_sock:-/run/podman/podman.sock}"
 
                 echo "podman: Docker-compatible API: $DOCKER_HOST" | lolcat
 

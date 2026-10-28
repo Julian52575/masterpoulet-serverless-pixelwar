@@ -1,7 +1,7 @@
 const http = require("node:http");
 const { handler } = require("./handler");
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 8080);
 
 const server = http.createServer(async (req, res) => {
   if (req.method !== "POST" || req.url !== "/interactions") {
@@ -10,11 +10,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  let rawBody = "";
-  req.setEncoding("utf8");
+  // Keep the body as raw bytes: the Ed25519 signature covers the exact bytes Discord sent.
+  const chunks = [];
 
   req.on("data", (chunk) => {
-    rawBody += chunk;
+    chunks.push(chunk);
   });
 
   req.on("end", async () => {
@@ -24,8 +24,8 @@ const server = http.createServer(async (req, res) => {
         routeKey: "POST /interactions",
         rawPath: "/interactions",
         headers: req.headers,
-        body: rawBody,
-        isBase64Encoded: false
+        body: Buffer.concat(chunks).toString("base64"),
+        isBase64Encoded: true
       });
 
       res.writeHead(result.statusCode || 500, result.headers || {});
@@ -44,6 +44,6 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Discord proxy local: http://127.0.0.1:${PORT}/interactions`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Discord proxy listening on port ${PORT}`);
 });

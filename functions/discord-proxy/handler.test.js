@@ -252,6 +252,17 @@ describe("handler", () => {
     }
   });
 
+  test("accepts a public key stored with a trailing newline in Secret Manager", async () => {
+    const saved = process.env.DISCORD_PUBLIC_KEY;
+    process.env.DISCORD_PUBLIC_KEY = `${publicKey}\n`;
+    try {
+      const res = await handler(signedEvent({ type: 1 }));
+      assert.equal(res.statusCode, 200);
+    } finally {
+      process.env.DISCORD_PUBLIC_KEY = saved;
+    }
+  });
+
   test("returns 400 for a signed body that is not JSON", async () => {
     const ts = now();
     const body = "not json";

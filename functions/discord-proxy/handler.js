@@ -3,6 +3,7 @@ const nacl = require("tweetnacl");
 const { log } = require("./logger");
 const { parseInteraction } = require("./interaction");
 const { publishCommand } = require("./publisher");
+const { readPublicKey } = require("./config");
 
 const EPHEMERAL = 64;
 
@@ -60,7 +61,7 @@ function createHandler({ publish }) {
       ])
     );
 
-    const publicKey = process.env.DISCORD_PUBLIC_KEY;
+    const publicKey = readPublicKey();
     const signature = headers["x-signature-ed25519"];
     const timestamp = headers["x-signature-timestamp"];
 

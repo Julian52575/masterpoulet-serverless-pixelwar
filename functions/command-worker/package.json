@@ -1,0 +1,14 @@
+{
+  "name": "command-worker",
+  "version": "1.0.0",
+  "description": "Serverless worker consuming Discord commands from Pub/Sub for Pixelwar C07",
+  "private": true,
+  "main": "worker.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node local.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

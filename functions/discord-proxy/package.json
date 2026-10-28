@@ -9,12 +9,13 @@
     "start": "node local.js"
   },
   "dependencies": {
+    "@google-cloud/pubsub": "^6.3.1",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "discord.js": "^14.27.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

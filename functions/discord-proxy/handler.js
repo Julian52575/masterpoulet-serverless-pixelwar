@@ -1,6 +1,21 @@
 const { randomUUID } = require("node:crypto");
 const nacl = require("tweetnacl");
 const { log } = require("./logger");
+const { parseInteraction } = require("./interaction");
+const { publishCommand } = require("./publisher");
+
+const EPHEMERAL = 64;
+
+function reply(statusCode, body, correlationId) {
+  return {
+    statusCode,
+    headers: {
+      "content-type": "application/json",
+      "x-correlation-id": correlationId
+    },
+    body: JSON.stringify(body)
+  };
+}
 
 const MAX_TIMESTAMP_AGE_SECONDS = 300;
 
@@ -36,87 +51,107 @@ function verifyDiscordRequest(publicKey, signature, timestamp, rawBody) {
   }
 }
 
-async function handler(event) {
-  const headers = Object.fromEntries(
-    Object.entries(event.headers || {}).map(([key, value]) => [
-      key.toLowerCase(),
-      value
-    ])
-  );
+function createHandler({ publish }) {
+  return async function handler(event) {
+    const headers = Object.fromEntries(
+      Object.entries(event.headers || {}).map(([key, value]) => [
+        key.toLowerCase(),
+        value
+      ])
+    );
 
-  const publicKey = process.env.DISCORD_PUBLIC_KEY;
-  const signature = headers["x-signature-ed25519"];
-  const timestamp = headers["x-signature-timestamp"];
+    const publicKey = process.env.DISCORD_PUBLIC_KEY;
+    const signature = headers["x-signature-ed25519"];
+    const timestamp = headers["x-signature-timestamp"];
 
-  const encodedBody = event.body ?? "";
-  let rawBody;
+    const encodedBody = event.body ?? "";
+    let rawBody;
 
-  try {
-    rawBody = event.isBase64Encoded
-      ? Buffer.from(encodedBody, "base64")
-      : Buffer.from(encodedBody, "utf8");
-  } catch {
-    log.warn("invalid request body encoding");
-    return { statusCode: 400, body: "Invalid request body" };
-  }
+    try {
+      rawBody = event.isBase64Encoded
+        ? Buffer.from(encodedBody, "base64")
+        : Buffer.from(encodedBody, "utf8");
+    } catch {
+      log.warn("invalid request body encoding");
+      return { statusCode: 400, body: "Invalid request body" };
+    }
 
-  if (!publicKey) {
-    log.error("DISCORD_PUBLIC_KEY is not configured");
-  }
+    if (!publicKey) {
+      log.error("DISCORD_PUBLIC_KEY is not configured");
+    }
 
-  if (!verifyDiscordRequest(publicKey, signature, timestamp, rawBody)) {
-    log.warn("discord signature rejected", {
-      has_signature: Boolean(signature),
-      has_timestamp: Boolean(timestamp)
-    });
-    return {
-      statusCode: 401,
-      headers: { "content-type": "text/plain" },
-      body: "Invalid or missing Discord signature"
-    };
-  }
+    if (!verifyDiscordRequest(publicKey, signature, timestamp, rawBody)) {
+      log.warn("discord signature rejected", {
+        has_signature: Boolean(signature),
+        has_timestamp: Boolean(timestamp)
+      });
+      return {
+        statusCode: 401,
+        headers: { "content-type": "text/plain" },
+        body: "Invalid or missing Discord signature"
+      };
+    }
 
-  let interaction;
+    let interaction;
 
-  try {
-    interaction = JSON.parse(rawBody.toString("utf8"));
-  } catch {
-    log.warn("signed body is not valid JSON");
-    return { statusCode: 400, body: "Invalid JSON" };
-  }
+    try {
+      interaction = JSON.parse(rawBody.toString("utf8"));
+    } catch {
+      log.warn("signed body is not valid JSON");
+      return { statusCode: 400, body: "Invalid JSON" };
+    }
 
-  if (interaction.type === 1) {
-    return {
-      statusCode: 200,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ type: 1 })
-    };
-  }
+    if (interaction.type === 1) {
+      return {
+        statusCode: 200,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: 1 })
+      };
+    }
 
-  if (interaction.type === 2) {
-    const commandName = interaction.data?.name;
-    const correlationId = randomUUID();
+    if (interaction.type === 2) {
+      const correlationId = randomUUID();
+      const command = parseInteraction(interaction);
 
-    log.info("discord command received", {
-      correlation_id: correlationId,
-      command: commandName,
-      user_id: interaction.member?.user?.id ?? interaction.user?.id,
-      interaction_id: interaction.id,
-      guild_id: interaction.guild_id
-    });
+      if (!command) {
+        log.warn("unknown discord command", {
+          correlation_id: correlationId,
+          command: interaction.data?.name
+        });
+        return reply(200, {
+          type: 4,
+          data: { content: "Commande inconnue.", flags: EPHEMERAL }
+        }, correlationId);
+      }
 
-    return {
-      statusCode: 200,
-      headers: {
-        "content-type": "application/json",
-        "x-correlation-id": correlationId
-      },
-      body: JSON.stringify({ type: 5 })
-    };
-  }
+      const fields = {
+        correlation_id: correlationId,
+        command: command.type,
+        user_id: command.user_id,
+        interaction_id: command.interaction_id,
+        guild_id: command.guild_id
+      };
+      log.info("discord command received", fields);
 
-  log.warn("unsupported interaction type", { interaction_type: interaction.type });
-  return { statusCode: 400, body: "Unsupported interaction type" };
+      try {
+        const messageId = await publish({ ...command, correlation_id: correlationId });
+        log.info("discord command published", { ...fields, message_id: messageId });
+      } catch (error) {
+        log.error("failed to publish discord command", { ...fields, error: error.message });
+        return reply(500, { error: "Failed to queue command" }, correlationId);
+      }
+
+      const deferred = command.type.startsWith("admin.")
+        ? { type: 5, data: { flags: EPHEMERAL } }
+        : { type: 5 };
+      return reply(200, deferred, correlationId);
+    }
+
+    log.warn("unsupported interaction type", { interaction_type: interaction.type });
+    return { statusCode: 400, body: "Unsupported interaction type" };
+  };
 }
 
-module.exports = { handler, verifyDiscordRequest };
+const handler = createHandler({ publish: publishCommand });
+
+module.exports = { createHandler, handler, verifyDiscordRequest };

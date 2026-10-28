@@ -25,6 +25,21 @@ function signedEvent(interaction, { timestamp = now(), base64 = false } = {}) {
   };
 }
 
+async function captureLogs(fn) {
+  const out = mock.method(console, "log", () => {});
+  const err = mock.method(console, "error", () => {});
+  try {
+    const result = await fn();
+    const stdout = out.mock.calls.map((call) => call.arguments[0]);
+    const stderr = err.mock.calls.map((call) => call.arguments[0]);
+    const lines = [...stdout, ...stderr];
+    return { result, lines, stdout, stderr, entries: lines.map((line) => JSON.parse(line)) };
+  } finally {
+    out.mock.restore();
+    err.mock.restore();
+  }
+}
+
 before(() => {
   process.env.DISCORD_PUBLIC_KEY = publicKey;
 });
@@ -103,13 +118,60 @@ describe("handler", () => {
   });
 
   test("logs the same correlation id as the one it returns", async () => {
-    const log = mock.method(console, "log", () => {});
+    const { result: res, entries } = await captureLogs(() =>
+      handler(signedEvent({ type: 2, id: "1", data: { name: "get" } }))
+    );
+    const logged = entries.map((entry) => entry.correlation_id);
+    assert.ok(logged.includes(res.headers["x-correlation-id"]));
+  });
+
+  test("logs a received command as one structured JSON line", async () => {
+    const interaction = {
+      type: 2,
+      id: "interaction-9",
+      guild_id: "guild-1",
+      member: { user: { id: "111" } },
+      data: { name: "draw" }
+    };
+    const { result: res, entries } = await captureLogs(() => handler(signedEvent(interaction)));
+    const entry = entries.find((e) => e.message === "discord command received");
+
+    assert.equal(entry.severity, "INFO");
+    assert.equal(entry.function, "discord-proxy");
+    assert.equal(entry.correlation_id, res.headers["x-correlation-id"]);
+    assert.equal(entry.command, "draw");
+    assert.equal(entry.user_id, "111");
+    assert.equal(entry.interaction_id, "interaction-9");
+    assert.equal(entry.guild_id, "guild-1");
+    assert.ok(!Number.isNaN(Date.parse(entry.timestamp)));
+  });
+
+  test("never writes the interaction token or the signature to the logs", async () => {
+    const event = signedEvent({ type: 2, id: "1", token: "secret-interaction-token", data: { name: "get" } });
+    const { lines } = await captureLogs(() => handler(event));
+    const all = lines.join("\n");
+    assert.ok(!all.includes("secret-interaction-token"));
+    assert.ok(!all.includes(event.headers["X-Signature-Ed25519"]));
+  });
+
+  test("logs a WARNING when a signature is rejected", async () => {
+    const event = signedEvent({ type: 1 });
+    event.headers["X-Signature-Ed25519"] = "0".repeat(128);
+    const { entries } = await captureLogs(() => handler(event));
+    const entry = entries.find((e) => e.message === "discord signature rejected");
+    assert.equal(entry.severity, "WARNING");
+    assert.equal(entry.has_signature, true);
+  });
+
+  test("logs an ERROR on stderr when the public key is not configured", async () => {
+    const saved = process.env.DISCORD_PUBLIC_KEY;
+    delete process.env.DISCORD_PUBLIC_KEY;
     try {
-      const res = await handler(signedEvent({ type: 2, id: "1", data: { name: "get" } }));
-      const logged = log.mock.calls.map((call) => call.arguments[1]?.correlation_id);
-      assert.ok(logged.includes(res.headers["x-correlation-id"]));
+      const { stderr } = await captureLogs(() => handler(signedEvent({ type: 1 })));
+      assert.equal(stderr.length, 1);
+      assert.equal(JSON.parse(stderr[0]).severity, "ERROR");
     } finally {
-      log.mock.restore();
+      process.env.DISCORD_PUBLIC_KEY = saved;
     }
   });
 

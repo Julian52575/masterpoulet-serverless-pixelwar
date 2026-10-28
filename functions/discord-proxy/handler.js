@@ -1,5 +1,6 @@
 const { randomUUID } = require("node:crypto");
 const nacl = require("tweetnacl");
+const { log } = require("./logger");
 
 const MAX_TIMESTAMP_AGE_SECONDS = 300;
 
@@ -55,10 +56,19 @@ async function handler(event) {
       ? Buffer.from(encodedBody, "base64")
       : Buffer.from(encodedBody, "utf8");
   } catch {
+    log.warn("invalid request body encoding");
     return { statusCode: 400, body: "Invalid request body" };
   }
 
+  if (!publicKey) {
+    log.error("DISCORD_PUBLIC_KEY is not configured");
+  }
+
   if (!verifyDiscordRequest(publicKey, signature, timestamp, rawBody)) {
+    log.warn("discord signature rejected", {
+      has_signature: Boolean(signature),
+      has_timestamp: Boolean(timestamp)
+    });
     return {
       statusCode: 401,
       headers: { "content-type": "text/plain" },
@@ -71,6 +81,7 @@ async function handler(event) {
   try {
     interaction = JSON.parse(rawBody.toString("utf8"));
   } catch {
+    log.warn("signed body is not valid JSON");
     return { statusCode: 400, body: "Invalid JSON" };
   }
 
@@ -86,11 +97,12 @@ async function handler(event) {
     const commandName = interaction.data?.name;
     const correlationId = randomUUID();
 
-    console.log("Discord command received:", {
+    log.info("discord command received", {
       correlation_id: correlationId,
-      commandName,
-      interactionId: interaction.id,
-      guildId: interaction.guild_id
+      command: commandName,
+      user_id: interaction.member?.user?.id ?? interaction.user?.id,
+      interaction_id: interaction.id,
+      guild_id: interaction.guild_id
     });
 
     return {
@@ -103,6 +115,7 @@ async function handler(event) {
     };
   }
 
+  log.warn("unsupported interaction type", { interaction_type: interaction.type });
   return { statusCode: 400, body: "Unsupported interaction type" };
 }
 

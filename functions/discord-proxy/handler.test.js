@@ -1,4 +1,4 @@
-const { test, describe, before } = require("node:test");
+const { test, describe, before, mock } = require("node:test");
 const assert = require("node:assert/strict");
 const nacl = require("tweetnacl");
 const { handler, verifyDiscordRequest } = require("./handler");
@@ -85,6 +85,32 @@ describe("handler", () => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.headers["content-type"], "application/json");
     assert.deepEqual(JSON.parse(res.body), { type: 5 });
+  });
+
+  test("gives every command a UUID correlation id, returned in x-correlation-id", async () => {
+    const res = await handler(signedEvent({ type: 2, id: "1", data: { name: "draw" } }));
+    assert.match(
+      res.headers["x-correlation-id"],
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
+  });
+
+  test("generates a different correlation id for each command", async () => {
+    const event = () => signedEvent({ type: 2, id: "1", data: { name: "get" } });
+    const first = await handler(event());
+    const second = await handler(event());
+    assert.notEqual(first.headers["x-correlation-id"], second.headers["x-correlation-id"]);
+  });
+
+  test("logs the same correlation id as the one it returns", async () => {
+    const log = mock.method(console, "log", () => {});
+    try {
+      const res = await handler(signedEvent({ type: 2, id: "1", data: { name: "get" } }));
+      const logged = log.mock.calls.map((call) => call.arguments[1]?.correlation_id);
+      assert.ok(logged.includes(res.headers["x-correlation-id"]));
+    } finally {
+      log.mock.restore();
+    }
   });
 
   test("accepts a base64-encoded body, as sent by local.js and the gateway", async () => {

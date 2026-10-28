@@ -1,3 +1,4 @@
+const { randomUUID } = require("node:crypto");
 const nacl = require("tweetnacl");
 
 const MAX_TIMESTAMP_AGE_SECONDS = 300;
@@ -83,17 +84,21 @@ async function handler(event) {
 
   if (interaction.type === 2) {
     const commandName = interaction.data?.name;
+    const correlationId = randomUUID();
 
     console.log("Discord command received:", {
+      correlation_id: correlationId,
       commandName,
       interactionId: interaction.id,
       guildId: interaction.guild_id
     });
 
-    // Deferred acknowledgement: Discord shows "thinking..." and the worker edits the reply later.
     return {
       statusCode: 200,
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-correlation-id": correlationId
+      },
       body: JSON.stringify({ type: 5 })
     };
   }

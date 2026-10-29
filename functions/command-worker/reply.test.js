@@ -15,9 +15,9 @@ function capture(fn) {
 describe("reply", () => {
   test("edits the original response with the given text", async () => {
     const sent = [];
-    const reply = createReplier({ discord: { editOriginal: async (e, m) => sent.push([e, m]) } });
+    const reply = createReplier({ discord: { editOriginal: async (e, m, f) => sent.push([e, m, f]) } });
     await reply(event, "OK");
-    assert.deepEqual(sent, [[event, { content: "OK" }]]);
+    assert.deepEqual(sent, [[event, { content: "OK" }, []]]);
   });
 
   test("rethrows a retryable Discord error so Pub/Sub retries", async () => {

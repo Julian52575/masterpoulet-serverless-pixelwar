@@ -3,6 +3,7 @@ const toMillis = (value) => value?.toMillis?.() ?? value?.getTime?.() ?? value;
 const COMPARE = {
   "<=": (a, b) => toMillis(a) <= toMillis(b),
   "<": (a, b) => toMillis(a) < toMillis(b),
+  ">": (a, b) => toMillis(a) > toMillis(b),
   "==": (a, b) => toMillis(a) === toMillis(b)
 };
 

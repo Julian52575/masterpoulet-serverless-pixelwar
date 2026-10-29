@@ -1,9 +1,9 @@
 const { log } = require("./logger");
 
 function createReplier({ discord }) {
-  return async function reply(event, content) {
+  return async function reply(event, content, files = []) {
     try {
-      await discord.editOriginal(event, { content });
+      await discord.editOriginal(event, { content }, files);
     } catch (error) {
       if (error.retryable) throw error;
       log.warn("could not reply to the user", {

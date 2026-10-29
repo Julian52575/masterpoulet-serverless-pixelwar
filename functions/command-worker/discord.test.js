@@ -119,4 +119,37 @@ describe("editOriginal", () => {
       assert.equal(calls.length, 0);
     });
   }
+
+  test("uploads attachments as multipart form data, as Discord requires", async () => {
+    const { fetch, calls } = fakeFetch();
+    const png = Buffer.from([137, 80, 78, 71]);
+    await createDiscordClient({ fetch }).editOriginal(event, { content: "La grille" }, [
+      { name: "pixelwar.png", data: png, contentType: "image/png" }
+    ]);
+
+    const { body, headers } = calls[0].init;
+    assert.ok(body instanceof FormData);
+    assert.equal(headers, undefined);
+    assert.deepEqual(JSON.parse(body.get("payload_json")), {
+      allowed_mentions: { parse: [] },
+      content: "La grille",
+      attachments: [{ id: 0, filename: "pixelwar.png" }]
+    });
+    const file = body.get("files[0]");
+    assert.equal(file.name, "pixelwar.png");
+    assert.equal(file.type, "image/png");
+    assert.deepEqual(Buffer.from(await file.arrayBuffer()), png);
+  });
+
+  test("refuses an attachment name that could break the request", async () => {
+    const { fetch, calls } = fakeFetch();
+    await assert.rejects(
+      createDiscordClient({ fetch }).editOriginal(event, { content: "x" }, [
+        { name: "../../evil.png", data: Buffer.alloc(1), contentType: "image/png" }
+      ]),
+      /invalid attachment filename/
+    );
+    assert.equal(calls.length, 0);
+  });
 });
+

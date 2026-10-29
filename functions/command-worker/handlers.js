@@ -2,6 +2,7 @@ const { createReplier } = require("./reply");
 const { isValidLimit, MIN_RATE_LIMIT, MAX_RATE_LIMIT } = require("./limits");
 const { validateDraw } = require("./draw");
 const { snowflakeTime } = require("./snowflake");
+const { renderCanvas } = require("./render");
 
 const PAUSED = "⏸️ Le dessin est en pause : /draw et le site sont bloqués jusqu'à /admin resume.";
 const RESUMED = "▶️ Le dessin a repris.";
@@ -18,12 +19,23 @@ const drawn = ({ x, y, color }, remaining) =>
   `🎨 Pixel (${x}, ${y}) dessiné en ${color}. Il te reste ${plural(remaining, "pixel")} cette minute.`;
 const rateLimited = (limit, seconds) =>
   `⏳ Tu as atteint ta limite de ${plural(limit, "pixel")} par minute. Réessaie dans ${seconds} s.`;
+const EMPTY_CANVAS = "🖼️ La grille est vide pour l'instant.";
+const canvasImage = ({ count, region, scale }) =>
+  `🖼️ La grille actuelle : ${plural(count, "pixel")}, de (${region.x0}, ${region.y0}) à (${region.x1}, ${region.y1})` +
+  (scale > 1 ? `, image réduite ${scale} fois pour tenir dans Discord.` : ".");
+const imageName = (at) => `pixelwar-${at.toISOString().replace(/[:.]/g, "-")}.png`;
 const cleared = (deleted) => `🧹 La grille a été effacée (${plural(deleted, "pixel")} supprimé${deleted > 1 ? "s" : ""}).`;
 
-function createHandlers({ state, limits, pixels, events, cleaner, discord, now = () => Date.now() }) {
+function createHandlers({ state, limits, pixels, events, cleaner, canvas, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });
 
   return {
+    get: async (event) => {
+      const image = renderCanvas(await canvas.visiblePixels());
+      const content = image.count === 0 ? EMPTY_CANVAS : canvasImage(image);
+      await reply(event, content, [{ name: imageName(new Date(now())), data: image.png, contentType: "image/png" }]);
+    },
+
     "admin.clear": async (event) => {
       const clearedAt = snowflakeTime(event.interaction_id) ?? new Date(now());
       await state.setCleared(clearedAt, event.user_id);
@@ -89,6 +101,9 @@ module.exports = {
   INVALID_USER,
   INVALID_LIMIT,
   DRAW_PAUSED,
+  EMPTY_CANVAS,
+  canvasImage,
+  imageName,
   cleared,
   limitSet,
   drawn,

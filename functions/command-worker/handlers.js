@@ -31,6 +31,7 @@ function createHandlers({ state, limits, pixels, events, discord, now = () => Da
       const drawnAt = snowflakeTime(event.interaction_id) ?? new Date(now());
       const limit = await limits.limitFor(event.user_id);
       const result = await pixels.draw({
+        requestId: event.interaction_id ?? event.correlation_id,
         ...pixel,
         author: event.user_id,
         authorName: event.username,

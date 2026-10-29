@@ -58,6 +58,7 @@ describe("draw handler", () => {
       { limitFor: "111" },
       {
         draw: {
+          requestId: INTERACTION_ID,
           x: 10,
           y: 20,
           color: "#e50000",
@@ -166,4 +167,34 @@ describe("draw handler", () => {
     await assert.rejects(draw(drawEvent()), /transaction aborted/);
     assert.ok(!calls.some((c) => c.reply));
   });
+
+  test("uses the Discord interaction id to recognise a command delivered twice", async () => {
+    const { draw, calls } = make();
+    await draw(drawEvent());
+    assert.equal(calls[1].draw.requestId, INTERACTION_ID);
+  });
+
+  test("falls back to the correlation id when the interaction id is missing", async () => {
+    const { draw, calls } = make();
+    await draw(drawEvent(undefined, { interaction_id: undefined }));
+    assert.equal(calls[1].draw.requestId, "corr-1");
+  });
+
+  test("finishes a replayed draw: publishes again and replies, so nothing is left half done", async () => {
+    const { draw, calls } = make({
+      result: { status: "drawn", superseded: false, limit: 20, remaining: 19, replayed: true }
+    });
+    await draw(drawEvent());
+    assert.ok(calls.some((c) => c.publish));
+    assert.deepEqual(calls.at(-1), { reply: drawn({ x: 10, y: 20, color: "#e50000" }, 19) });
+  });
+
+  test("does not republish a replayed draw that a newer pixel has overtaken", async () => {
+    const { draw, calls } = make({
+      result: { status: "drawn", superseded: true, limit: 20, remaining: 19, replayed: true }
+    });
+    await draw(drawEvent());
+    assert.ok(!calls.some((c) => c.publish));
+  });
 });
+

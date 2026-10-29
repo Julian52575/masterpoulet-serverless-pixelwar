@@ -3,24 +3,57 @@ const { STATE_COLLECTION, CANVAS_DOC } = require("./state");
 
 const PIXELS_COLLECTION = "pixels";
 const RATE_COLLECTION = "ratelimit";
+const PROCESSED_COLLECTION = "processed";
 const WINDOW_MS = 60 * 1000;
 const COUNTER_TTL_MS = 60 * 60 * 1000;
+const PROCESSED_TTL_MS = 24 * 60 * 60 * 1000;
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 const pixelId = (x, y) => `${x}_${y}`;
 const tileId = (x, y) => `${Math.floor(x / TILE)}_${Math.floor(y / TILE)}`;
 
+function isNewerThan(pixelSnap, drawnAt) {
+  if (!pixelSnap.exists) return false;
+  const stored = pixelSnap.data().updated_at;
+  const storedMs = stored?.toMillis?.() ?? stored?.getTime?.() ?? null;
+  return storedMs !== null && storedMs > drawnAt.getTime();
+}
+
 function createPixelStore({ db, now = () => Date.now() }) {
   const canvas = db.collection(STATE_COLLECTION).doc(CANVAS_DOC);
 
-  async function draw({ x, y, color, author, authorName, drawnAt, limit }) {
+  async function draw({ requestId, x, y, color, author, authorName, drawnAt, limit }) {
     const startedAt = now();
     const window = Math.floor(startedAt / WINDOW_MS);
     const counter = db.collection(RATE_COLLECTION).doc(`${author}_${window}`);
     const pixel = db.collection(PIXELS_COLLECTION).doc(pixelId(x, y));
+    const receipt = typeof requestId === "string" && REQUEST_ID.test(requestId)
+      ? db.collection(PROCESSED_COLLECTION).doc(requestId)
+      : null;
 
     return db.runTransaction(async (tx) => {
-      const [stateSnap, counterSnap, pixelSnap] = await tx.getAll(canvas, counter, pixel);
+      const refs = receipt ? [canvas, counter, pixel, receipt] : [canvas, counter, pixel];
+      const [stateSnap, counterSnap, pixelSnap, receiptSnap] = await tx.getAll(...refs);
 
+      if (receiptSnap?.exists) {
+        const stored = receiptSnap.data().result;
+        const overtaken = stored.status === "drawn" && isNewerThan(pixelSnap, drawnAt);
+        return { ...stored, superseded: stored.superseded || overtaken, replayed: true };
+      }
+
+      const result = apply(tx, stateSnap, counterSnap, pixelSnap);
+      if (receipt) {
+        tx.set(receipt, {
+          command: "draw",
+          result,
+          processed_at: new Date(startedAt),
+          expires_at: new Date(startedAt + PROCESSED_TTL_MS)
+        });
+      }
+      return result;
+    });
+
+    function apply(tx, stateSnap, counterSnap, pixelSnap) {
       if (stateSnap.exists && stateSnap.data().paused === true) {
         return { status: "paused" };
       }
@@ -41,9 +74,7 @@ function createPixelStore({ db, now = () => Date.now() }) {
         expires_at: new Date((window + 1) * WINDOW_MS + COUNTER_TTL_MS)
       });
 
-      const previous = pixelSnap.exists ? pixelSnap.data().updated_at : null;
-      const previousMs = previous?.toMillis?.() ?? previous?.getTime?.() ?? null;
-      const newer = previousMs === null || drawnAt.getTime() >= previousMs;
+      const newer = !isNewerThan(pixelSnap, drawnAt);
 
       if (newer) {
         tx.set(pixel, {
@@ -58,10 +89,18 @@ function createPixelStore({ db, now = () => Date.now() }) {
       }
 
       return { status: "drawn", superseded: !newer, limit, remaining: limit - used - 1 };
-    });
+    }
   }
 
   return { draw };
 }
 
-module.exports = { createPixelStore, pixelId, tileId, PIXELS_COLLECTION, RATE_COLLECTION, WINDOW_MS };
+module.exports = {
+  createPixelStore,
+  pixelId,
+  tileId,
+  PIXELS_COLLECTION,
+  RATE_COLLECTION,
+  PROCESSED_COLLECTION,
+  WINDOW_MS
+};

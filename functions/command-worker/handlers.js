@@ -24,9 +24,10 @@ const canvasImage = ({ count, region, scale }) =>
   `🖼️ La grille actuelle : ${plural(count, "pixel")}, de (${region.x0}, ${region.y0}) à (${region.x1}, ${region.y1})` +
   (scale > 1 ? `, image réduite ${scale} fois pour tenir dans Discord.` : ".");
 const imageName = (at) => `pixelwar-${at.toISOString().replace(/[:.]/g, "-")}.png`;
+const SNAPSHOT_PENDING = "📸 Snapshot en cours de création, le lien arrive dans quelques secondes…";
 const cleared = (deleted) => `🧹 La grille a été effacée (${plural(deleted, "pixel")} supprimé${deleted > 1 ? "s" : ""}).`;
 
-function createHandlers({ state, limits, pixels, events, cleaner, canvas, discord, now = () => Date.now() }) {
+function createHandlers({ state, limits, pixels, events, cleaner, canvas, snapshots, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });
 
   return {
@@ -34,6 +35,19 @@ function createHandlers({ state, limits, pixels, events, cleaner, canvas, discor
       const image = renderCanvas(await canvas.visiblePixels());
       const content = image.count === 0 ? EMPTY_CANVAS : canvasImage(image);
       await reply(event, content, [{ name: imageName(new Date(now())), data: image.png, contentType: "image/png" }]);
+    },
+
+    snapshot: async (event) => {
+      await snapshots.request({
+        snapshotId: event.interaction_id ?? event.correlation_id,
+        requestedAt: snowflakeTime(event.interaction_id) ?? new Date(now()),
+        requestedBy: event.user_id,
+        applicationId: event.application_id,
+        interactionToken: event.interaction_token,
+        channelId: event.channel_id,
+        correlationId: event.correlation_id
+      });
+      await reply(event, SNAPSHOT_PENDING);
     },
 
     "admin.clear": async (event) => {
@@ -102,6 +116,7 @@ module.exports = {
   INVALID_LIMIT,
   DRAW_PAUSED,
   EMPTY_CANVAS,
+  SNAPSHOT_PENDING,
   canvasImage,
   imageName,
   cleared,

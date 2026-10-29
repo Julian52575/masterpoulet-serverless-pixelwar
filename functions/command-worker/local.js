@@ -9,6 +9,7 @@ const { createPixelStore } = require("./pixels");
 const { createPixelEvents } = require("./events");
 const { createCanvasCleaner } = require("./clear");
 const { createCanvasReader } = require("./canvas");
+const { createSnapshotRequests } = require("./snapshots");
 const { createAuthorizer } = require("./authz");
 const { createDiscordClient } = require("./discord");
 const { loadConfig } = require("./config");
@@ -28,12 +29,14 @@ const db = new Firestore();
 const state = createCanvasState({ db });
 const limits = createRateLimits({ db });
 const pixels = createPixelStore({ db });
-const events = createPixelEvents({ topic: new PubSub().topic(config.pixelEventsTopic) });
+const pubsub = new PubSub();
+const events = createPixelEvents({ topic: pubsub.topic(config.pixelEventsTopic) });
+const snapshots = createSnapshotRequests({ topic: pubsub.topic(config.snapshotTopic) });
 const cleaner = createCanvasCleaner({ db });
 const canvas = createCanvasReader({ db });
 
 const handle = createWorker({
-  handlers: createHandlers({ state, limits, pixels, events, cleaner, canvas, discord }),
+  handlers: createHandlers({ state, limits, pixels, events, cleaner, canvas, snapshots, discord }),
   authorizer: createAuthorizer(config),
   discord
 });

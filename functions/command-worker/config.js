@@ -11,10 +11,12 @@ function loadConfig(env = process.env) {
   const adminUserIds = parseIdList(env.ADMIN_USER_IDS);
   const adminRoleIds = parseIdList(env.ADMIN_ROLE_IDS);
   const pixelEventsTopic = String(env.PIXEL_EVENTS_TOPIC ?? "").trim();
+  const snapshotTopic = String(env.SNAPSHOT_TOPIC ?? "").trim();
   const problems = [];
   const warnings = [];
 
   if (!pixelEventsTopic) problems.push("PIXEL_EVENTS_TOPIC is not configured");
+  if (!snapshotTopic) problems.push("SNAPSHOT_TOPIC is not configured");
 
   for (const [name, ids] of [["ADMIN_USER_IDS", adminUserIds], ["ADMIN_ROLE_IDS", adminRoleIds]]) {
     const invalid = ids.filter((id) => !SNOWFLAKE.test(id));
@@ -25,7 +27,7 @@ function loadConfig(env = process.env) {
     warnings.push("no admin configured: every admin command will be refused");
   }
 
-  return { adminUserIds, adminRoleIds, pixelEventsTopic, problems, warnings };
+  return { adminUserIds, adminRoleIds, pixelEventsTopic, snapshotTopic, problems, warnings };
 }
 
 module.exports = { loadConfig };

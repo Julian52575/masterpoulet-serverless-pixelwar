@@ -233,3 +233,41 @@ describe("draw idempotency", () => {
   });
 });
 
+describe("draw after a clear", () => {
+  test("does not write a pixel typed before the clear but processed after it", async () => {
+    const { db, store } = make();
+    db.docs.set("state/canvas", { cleared_at: new Date(MINUTE_START + 14500) });
+
+    const result = await store.draw(request({ drawnAt: new Date(MINUTE_START + 14000) }));
+
+    assert.equal(result.status, "drawn");
+    assert.equal(result.superseded, true);
+    assert.equal(db.docs.has("pixels/10_20"), false);
+  });
+
+  test("still counts it in the quota, like any other draw the user sent", async () => {
+    const { db, store } = make();
+    db.docs.set("state/canvas", { cleared_at: new Date(MINUTE_START + 14500) });
+    const result = await store.draw(request({ drawnAt: new Date(MINUTE_START + 14000) }));
+    assert.equal(result.remaining, 19);
+  });
+
+  test("writes a pixel typed after the clear", async () => {
+    const { db, store } = make();
+    db.docs.set("state/canvas", { cleared_at: new Date(MINUTE_START + 1000) });
+    const result = await store.draw(request({ drawnAt: new Date(MINUTE_START + 14000) }));
+    assert.equal(result.superseded, false);
+    assert.equal(db.docs.get("pixels/10_20").color, "#ff0000");
+  });
+
+  test("does not republish a replayed draw that a clear has erased meanwhile", async () => {
+    const { db, store } = make();
+    await store.draw(request({ requestId: "before-clear", drawnAt: new Date(MINUTE_START + 1000) }));
+    db.docs.set("state/canvas", { cleared_at: new Date(MINUTE_START + 2000) });
+    db.docs.delete("pixels/10_20");
+
+    const replay = await store.draw(request({ requestId: "before-clear", drawnAt: new Date(MINUTE_START + 1000) }));
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.superseded, true);
+  });
+});

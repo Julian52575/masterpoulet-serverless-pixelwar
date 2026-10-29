@@ -1,5 +1,5 @@
 const { TILE } = require("./grid");
-const { STATE_COLLECTION, CANVAS_DOC } = require("./state");
+const { STATE_COLLECTION, CANVAS_DOC, toMillis } = require("./state");
 
 const PIXELS_COLLECTION = "pixels";
 const RATE_COLLECTION = "ratelimit";
@@ -14,9 +14,14 @@ const tileId = (x, y) => `${Math.floor(x / TILE)}_${Math.floor(y / TILE)}`;
 
 function isNewerThan(pixelSnap, drawnAt) {
   if (!pixelSnap.exists) return false;
-  const stored = pixelSnap.data().updated_at;
-  const storedMs = stored?.toMillis?.() ?? stored?.getTime?.() ?? null;
+  const storedMs = toMillis(pixelSnap.data().updated_at);
   return storedMs !== null && storedMs > drawnAt.getTime();
+}
+
+function isErasedBy(stateSnap, drawnAt) {
+  if (!stateSnap.exists) return false;
+  const clearedMs = toMillis(stateSnap.data().cleared_at);
+  return clearedMs !== null && drawnAt.getTime() <= clearedMs;
 }
 
 function createPixelStore({ db, now = () => Date.now() }) {
@@ -37,7 +42,8 @@ function createPixelStore({ db, now = () => Date.now() }) {
 
       if (receiptSnap?.exists) {
         const stored = receiptSnap.data().result;
-        const overtaken = stored.status === "drawn" && isNewerThan(pixelSnap, drawnAt);
+        const overtaken = stored.status === "drawn" &&
+          (isNewerThan(pixelSnap, drawnAt) || isErasedBy(stateSnap, drawnAt));
         return { ...stored, superseded: stored.superseded || overtaken, replayed: true };
       }
 
@@ -74,7 +80,7 @@ function createPixelStore({ db, now = () => Date.now() }) {
         expires_at: new Date((window + 1) * WINDOW_MS + COUNTER_TTL_MS)
       });
 
-      const newer = !isNewerThan(pixelSnap, drawnAt);
+      const newer = !isNewerThan(pixelSnap, drawnAt) && !isErasedBy(stateSnap, drawnAt);
 
       if (newer) {
         tx.set(pixel, {

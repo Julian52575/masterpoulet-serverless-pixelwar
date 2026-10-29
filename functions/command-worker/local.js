@@ -7,6 +7,7 @@ const { createCanvasState } = require("./state");
 const { createRateLimits } = require("./limits");
 const { createPixelStore } = require("./pixels");
 const { createPixelEvents } = require("./events");
+const { createCanvasCleaner } = require("./clear");
 const { createAuthorizer } = require("./authz");
 const { createDiscordClient } = require("./discord");
 const { loadConfig } = require("./config");
@@ -27,9 +28,10 @@ const state = createCanvasState({ db });
 const limits = createRateLimits({ db });
 const pixels = createPixelStore({ db });
 const events = createPixelEvents({ topic: new PubSub().topic(config.pixelEventsTopic) });
+const cleaner = createCanvasCleaner({ db });
 
 const handle = createWorker({
-  handlers: createHandlers({ state, limits, pixels, events, discord }),
+  handlers: createHandlers({ state, limits, pixels, events, cleaner, discord }),
   authorizer: createAuthorizer(config),
   discord
 });

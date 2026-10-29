@@ -1,6 +1,6 @@
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
-const { createPixelEvents, PIXEL_PROCESSED } = require("./events");
+const { createPixelEvents, PIXEL_PROCESSED, CANVAS_CLEARED } = require("./events");
 
 function fakeTopic() {
   const sent = [];
@@ -63,5 +63,24 @@ describe("pixel.processed", () => {
   test("lets a Pub/Sub failure reach the caller", async () => {
     const topic = { publishMessage: async () => { throw new Error("pubsub unavailable"); } };
     await assert.rejects(createPixelEvents({ topic }).pixelProcessed(pixel), /pubsub unavailable/);
+  });
+});
+
+describe("canvas.cleared", () => {
+  test("announces the clear with when and by whom", async () => {
+    const topic = fakeTopic();
+    await createPixelEvents({ topic }).canvasCleared({
+      clearedAt: new Date("2026-10-29T10:00:00.000Z"),
+      clearedBy: "999",
+      correlationId: "corr-9"
+    });
+
+    assert.deepEqual(topic.sent[0].json, {
+      type: "canvas.cleared",
+      cleared_at: "2026-10-29T10:00:00.000Z",
+      cleared_by: "999",
+      correlation_id: "corr-9"
+    });
+    assert.deepEqual(topic.sent[0].attributes, { type: CANVAS_CLEARED, correlation_id: "corr-9" });
   });
 });

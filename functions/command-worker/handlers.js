@@ -18,11 +18,20 @@ const drawn = ({ x, y, color }, remaining) =>
   `🎨 Pixel (${x}, ${y}) dessiné en ${color}. Il te reste ${plural(remaining, "pixel")} cette minute.`;
 const rateLimited = (limit, seconds) =>
   `⏳ Tu as atteint ta limite de ${plural(limit, "pixel")} par minute. Réessaie dans ${seconds} s.`;
+const cleared = (deleted) => `🧹 La grille a été effacée (${plural(deleted, "pixel")} supprimé${deleted > 1 ? "s" : ""}).`;
 
-function createHandlers({ state, limits, pixels, events, discord, now = () => Date.now() }) {
+function createHandlers({ state, limits, pixels, events, cleaner, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });
 
   return {
+    "admin.clear": async (event) => {
+      const clearedAt = snowflakeTime(event.interaction_id) ?? new Date(now());
+      await state.setCleared(clearedAt, event.user_id);
+      const deleted = await cleaner.clearBefore(clearedAt);
+      await events.canvasCleared({ clearedAt, clearedBy: event.user_id, correlationId: event.correlation_id });
+      await reply(event, cleared(deleted));
+    },
+
     draw: async (event) => {
       const checked = validateDraw(event.payload);
       if (!checked.ok) return reply(event, checked.error);
@@ -80,6 +89,7 @@ module.exports = {
   INVALID_USER,
   INVALID_LIMIT,
   DRAW_PAUSED,
+  cleared,
   limitSet,
   drawn,
   rateLimited

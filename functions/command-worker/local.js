@@ -1,6 +1,8 @@
 const http = require("node:http");
+const { Firestore } = require("@google-cloud/firestore");
 const { createWorker } = require("./worker");
-const { handlers } = require("./handlers");
+const { createHandlers } = require("./handlers");
+const { createCanvasState } = require("./state");
 const { createAuthorizer } = require("./authz");
 const { createDiscordClient } = require("./discord");
 const { loadConfig } = require("./config");
@@ -15,10 +17,13 @@ if (config.problems.length > 0) {
 }
 for (const warning of config.warnings) log.warn("configuration warning", { warning });
 
+const discord = createDiscordClient();
+const state = createCanvasState({ db: new Firestore() });
+
 const handle = createWorker({
-  handlers,
+  handlers: createHandlers({ state, discord }),
   authorizer: createAuthorizer(config),
-  discord: createDiscordClient()
+  discord
 });
 
 const server = http.createServer((req, res) => {

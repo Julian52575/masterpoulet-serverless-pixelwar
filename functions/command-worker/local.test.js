@@ -3,28 +3,42 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 
-let child;
-let baseUrl;
-
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64");
 
-before(async () => {
-  child = spawn(process.execPath, [path.join(__dirname, "local.js")], {
-    env: { PATH: process.env.PATH, PORT: "0" }
+function start(env) {
+  const child = spawn(process.execPath, [path.join(__dirname, "local.js")], {
+    env: { PATH: process.env.PATH, PORT: "0", ...env }
   });
-  const line = await new Promise((resolve, reject) => {
-    child.stdout.once("data", resolve);
-    child.once("exit", (code) => reject(new Error(`exited with ${code}`)));
+  const out = { entries: [], stderr: "" };
+  let buffer = "";
+  const listening = new Promise((resolve, reject) => {
+    child.stdout.on("data", (d) => {
+      buffer += d;
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines.filter(Boolean)) {
+        const entry = JSON.parse(line);
+        out.entries.push(entry);
+        if (entry.message === "command worker listening") resolve(entry.port);
+      }
+    });
+    child.once("exit", (code) => reject(Object.assign(new Error(`exited with ${code}`), { code })));
   });
-  const entry = JSON.parse(String(line).split("\n")[0]);
-  assert.equal(entry.message, "command worker listening");
-  assert.ok(entry.port > 0);
-  baseUrl = `http://127.0.0.1:${entry.port}`;
-});
-
-after(() => child?.kill());
+  child.stderr.on("data", (d) => { out.stderr += d; });
+  return { child, out, listening };
+}
 
 describe("local.js", () => {
+  let worker;
+  let baseUrl;
+
+  before(async () => {
+    worker = start({ ADMIN_USER_IDS: "999" });
+    baseUrl = `http://127.0.0.1:${await worker.listening}`;
+  });
+
+  after(() => worker?.child.kill());
+
   test("answers 400 to a valid push message whose command has no handler yet", async () => {
     const body = JSON.stringify({ message: { data: encode({ type: "draw", correlation_id: "c" }) } });
     const res = await fetch(`${baseUrl}/`, { method: "POST", body });
@@ -39,5 +53,28 @@ describe("local.js", () => {
   test("answers 404 to other routes and methods", async () => {
     assert.equal((await fetch(`${baseUrl}/`)).status, 404);
     assert.equal((await fetch(`${baseUrl}/other`, { method: "POST", body: "{}" })).status, 404);
+  });
+});
+
+describe("local.js startup", () => {
+  test("refuses to start when an admin id is not a Discord snowflake", async () => {
+    const { child, out, listening } = start({ ADMIN_USER_IDS: "alice" });
+    await assert.rejects(listening, (error) => error.code === 1);
+    const entry = JSON.parse(out.stderr.split("\n")[0]);
+    assert.equal(entry.severity, "ERROR");
+    assert.match(entry.problem, /ADMIN_USER_IDS contains invalid Discord ids: alice/);
+    child.kill();
+  });
+
+  test("starts but logs a WARNING when no admin is configured", async () => {
+    const { child, out, listening } = start({});
+    try {
+      await listening;
+      const warning = out.entries.find((e) => e.message === "configuration warning");
+      assert.equal(warning.severity, "WARNING");
+      assert.match(warning.warning, /every admin command will be refused/);
+    } finally {
+      child.kill();
+    }
   });
 });

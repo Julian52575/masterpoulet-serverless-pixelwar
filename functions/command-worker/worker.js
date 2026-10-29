@@ -5,7 +5,24 @@ const ACK = 204;
 const REJECT = 400;
 const RETRY = 500;
 
-function createWorker({ handlers }) {
+const REFUSED = "⛔ Cette commande est réservée aux administrateurs.";
+
+function createWorker({ handlers, authorizer, discord }) {
+  async function refuse(event, fields) {
+    log.warn("admin command refused", fields);
+    try {
+      await discord.editOriginal(event, { content: REFUSED });
+    } catch (error) {
+      log.warn("could not tell the user the command was refused", {
+        ...fields,
+        error: error.message,
+        status: error.status
+      });
+      if (error.retryable) return { statusCode: RETRY };
+    }
+    return { statusCode: ACK };
+  }
+
   return async function handle(rawBody) {
     let message;
     try {
@@ -29,6 +46,10 @@ function createWorker({ handlers }) {
     if (!Object.hasOwn(handlers, event.type)) {
       log.warn("unsupported command type", fields);
       return { statusCode: REJECT };
+    }
+
+    if (authorizer.requiresAdmin(event.type) && !authorizer.isAdmin(event)) {
+      return refuse(event, fields);
     }
 
     log.info("command received", fields);

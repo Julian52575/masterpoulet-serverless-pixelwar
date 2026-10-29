@@ -40,7 +40,7 @@ describe("local.js", () => {
   after(() => worker?.child.kill());
 
   test("answers 400 to a valid push message whose command has no handler yet", async () => {
-    const body = JSON.stringify({ message: { data: encode({ type: "draw", correlation_id: "c" }) } });
+    const body = JSON.stringify({ message: { data: encode({ type: "get", correlation_id: "c" }) } });
     const res = await fetch(`${baseUrl}/`, { method: "POST", body });
     assert.equal(res.status, 400);
   });

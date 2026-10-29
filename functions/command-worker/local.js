@@ -4,6 +4,7 @@ const { createWorker } = require("./worker");
 const { createHandlers } = require("./handlers");
 const { createCanvasState } = require("./state");
 const { createRateLimits } = require("./limits");
+const { createPixelStore } = require("./pixels");
 const { createAuthorizer } = require("./authz");
 const { createDiscordClient } = require("./discord");
 const { loadConfig } = require("./config");
@@ -22,9 +23,10 @@ const discord = createDiscordClient();
 const db = new Firestore();
 const state = createCanvasState({ db });
 const limits = createRateLimits({ db });
+const pixels = createPixelStore({ db });
 
 const handle = createWorker({
-  handlers: createHandlers({ state, limits, discord }),
+  handlers: createHandlers({ state, limits, pixels, discord }),
   authorizer: createAuthorizer(config),
   discord
 });

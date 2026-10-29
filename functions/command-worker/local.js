@@ -3,6 +3,7 @@ const { Firestore } = require("@google-cloud/firestore");
 const { createWorker } = require("./worker");
 const { createHandlers } = require("./handlers");
 const { createCanvasState } = require("./state");
+const { createRateLimits } = require("./limits");
 const { createAuthorizer } = require("./authz");
 const { createDiscordClient } = require("./discord");
 const { loadConfig } = require("./config");
@@ -18,10 +19,12 @@ if (config.problems.length > 0) {
 for (const warning of config.warnings) log.warn("configuration warning", { warning });
 
 const discord = createDiscordClient();
-const state = createCanvasState({ db: new Firestore() });
+const db = new Firestore();
+const state = createCanvasState({ db });
+const limits = createRateLimits({ db });
 
 const handle = createWorker({
-  handlers: createHandlers({ state, discord }),
+  handlers: createHandlers({ state, limits, discord }),
   authorizer: createAuthorizer(config),
   discord
 });

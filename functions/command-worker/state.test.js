@@ -1,24 +1,7 @@
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
 const { createCanvasState } = require("./state");
-
-function fakeDb() {
-  const docs = new Map();
-  return {
-    docs,
-    collection: (collection) => ({
-      doc: (id) => {
-        const key = `${collection}/${id}`;
-        return {
-          set: async (data, options) => {
-            docs.set(key, options?.merge ? { ...(docs.get(key) ?? {}), ...data } : data);
-          },
-          get: async () => ({ exists: docs.has(key), data: () => docs.get(key) })
-        };
-      }
-    })
-  };
-}
+const { fakeFirestore: fakeDb } = require("./fake-firestore");
 
 describe("canvas state", () => {
   test("is not paused when nothing was ever written", async () => {

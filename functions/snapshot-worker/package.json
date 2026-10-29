@@ -1,0 +1,18 @@
+{
+  "name": "snapshot-worker",
+  "version": "1.0.0",
+  "description": "Serverless worker rendering canvas snapshots into Cloud Storage for Pixelwar C07",
+  "private": true,
+  "main": "worker.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node local.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^9.4.0",
+    "@google-cloud/storage": "^8.4.0"
+  }
+}

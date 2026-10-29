@@ -7,7 +7,7 @@ const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64");
 
 function start(env) {
   const child = spawn(process.execPath, [path.join(__dirname, "local.js")], {
-    env: { PATH: process.env.PATH, PORT: "0", ...env }
+    env: { PATH: process.env.PATH, PORT: "0", PIXEL_EVENTS_TOPIC: "pixel-events", ...env }
   });
   const out = { entries: [], stderr: "" };
   let buffer = "";
@@ -76,5 +76,12 @@ describe("local.js startup", () => {
     } finally {
       child.kill();
     }
+  });
+
+  test("refuses to start when the pixel events topic is not configured", async () => {
+    const { child, out, listening } = start({ ADMIN_USER_IDS: "999", PIXEL_EVENTS_TOPIC: "" });
+    await assert.rejects(listening, (error) => error.code === 1);
+    assert.match(out.stderr, /PIXEL_EVENTS_TOPIC is not configured/);
+    child.kill();
   });
 });

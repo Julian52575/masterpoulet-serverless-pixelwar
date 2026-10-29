@@ -6,7 +6,12 @@ const { snowflakeTime } = require("./snowflake");
 
 const INTERACTION_ID = "1300000000000000000";
 
-function make({ result = { status: "drawn", superseded: false, limit: 20, remaining: 19 }, limit = 20, pixelsError } = {}) {
+function make({
+  result = { status: "drawn", superseded: false, limit: 20, remaining: 19 },
+  limit = 20,
+  pixelsError,
+  eventsError
+} = {}) {
   const calls = [];
   const limits = {
     limitFor: async (user) => {
@@ -21,8 +26,14 @@ function make({ result = { status: "drawn", superseded: false, limit: 20, remain
       return result;
     }
   };
+  const events = {
+    pixelProcessed: async (pixelEvent) => {
+      if (eventsError) throw eventsError;
+      calls.push({ publish: pixelEvent });
+    }
+  };
   const discord = { editOriginal: async (event, message) => calls.push({ reply: message.content }) };
-  const handlers = createHandlers({ state: {}, limits, pixels, discord, now: () => Date.UTC(2026, 9, 29) });
+  const handlers = createHandlers({ state: {}, limits, pixels, events, discord, now: () => Date.UTC(2026, 9, 29) });
   return { draw: handlers.draw, calls };
 }
 
@@ -39,7 +50,7 @@ const drawEvent = (payload = { x: 10, y: 20, color: "Red" }, extra = {}) => ({
 });
 
 describe("draw handler", () => {
-  test("validates, reads the user's limit, draws, then replies", async () => {
+  test("validates, reads the user's limit, draws, publishes, then replies", async () => {
     const { draw, calls } = make();
     await draw(drawEvent());
 
@@ -56,8 +67,46 @@ describe("draw handler", () => {
           limit: 20
         }
       },
+      {
+        publish: {
+          x: 10,
+          y: 20,
+          color: "#e50000",
+          author: "111",
+          authorName: "Alice",
+          updatedAt: snowflakeTime(INTERACTION_ID),
+          correlationId: "corr-1"
+        }
+      },
       { reply: drawn({ x: 10, y: 20, color: "#e50000" }, 19) }
     ]);
+  });
+
+  test("does not publish when a newer pixel already won (nothing changed)", async () => {
+    const { draw, calls } = make({ result: { status: "drawn", superseded: true, limit: 20, remaining: 18 } });
+    await draw(drawEvent());
+    assert.ok(!calls.some((c) => c.publish));
+    assert.deepEqual(calls.at(-1), { reply: drawn({ x: 10, y: 20, color: "#e50000" }, 18) });
+  });
+
+  test("does not publish when the canvas is paused or the limit is reached", async () => {
+    for (const result of [{ status: "paused" }, { status: "rate_limited", limit: 20, retryAfterSeconds: 3 }]) {
+      const { draw, calls } = make({ result });
+      await draw(drawEvent());
+      assert.ok(!calls.some((c) => c.publish));
+    }
+  });
+
+  test("does not publish an invalid draw", async () => {
+    const { draw, calls } = make();
+    await draw(drawEvent({ x: -1, y: 0, color: "red" }));
+    assert.ok(!calls.some((c) => c.publish));
+  });
+
+  test("does not reply when the event cannot be published, so Pub/Sub retries", async () => {
+    const { draw, calls } = make({ eventsError: new Error("pubsub unavailable") });
+    await assert.rejects(draw(drawEvent()), /pubsub unavailable/);
+    assert.ok(!calls.some((c) => c.reply));
   });
 
   test("passes the user's own limit to the transaction", async () => {

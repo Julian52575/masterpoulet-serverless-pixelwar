@@ -19,7 +19,7 @@ const drawn = ({ x, y, color }, remaining) =>
 const rateLimited = (limit, seconds) =>
   `⏳ Tu as atteint ta limite de ${plural(limit, "pixel")} par minute. Réessaie dans ${seconds} s.`;
 
-function createHandlers({ state, limits, pixels, discord, now = () => Date.now() }) {
+function createHandlers({ state, limits, pixels, events, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });
 
   return {
@@ -28,17 +28,28 @@ function createHandlers({ state, limits, pixels, discord, now = () => Date.now()
       if (!checked.ok) return reply(event, checked.error);
 
       const { pixel } = checked;
+      const drawnAt = snowflakeTime(event.interaction_id) ?? new Date(now());
       const limit = await limits.limitFor(event.user_id);
       const result = await pixels.draw({
         ...pixel,
         author: event.user_id,
         authorName: event.username,
-        drawnAt: snowflakeTime(event.interaction_id) ?? new Date(now()),
+        drawnAt,
         limit
       });
 
       if (result.status === "paused") return reply(event, DRAW_PAUSED);
       if (result.status === "rate_limited") return reply(event, rateLimited(result.limit, result.retryAfterSeconds));
+
+      if (!result.superseded) {
+        await events.pixelProcessed({
+          ...pixel,
+          author: event.user_id,
+          authorName: event.username,
+          updatedAt: drawnAt,
+          correlationId: event.correlation_id
+        });
+      }
       await reply(event, drawn(pixel, result.remaining));
     },
 

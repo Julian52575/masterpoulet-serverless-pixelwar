@@ -12,6 +12,7 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@google-cloud/firestore": "^9.4.0"
+    "@google-cloud/firestore": "^9.4.0",
+    "@google-cloud/pubsub": "^6.3.2"
   }
 }

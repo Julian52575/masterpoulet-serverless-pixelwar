@@ -1,10 +1,12 @@
 const http = require("node:http");
 const { Firestore } = require("@google-cloud/firestore");
+const { PubSub } = require("@google-cloud/pubsub");
 const { createWorker } = require("./worker");
 const { createHandlers } = require("./handlers");
 const { createCanvasState } = require("./state");
 const { createRateLimits } = require("./limits");
 const { createPixelStore } = require("./pixels");
+const { createPixelEvents } = require("./events");
 const { createAuthorizer } = require("./authz");
 const { createDiscordClient } = require("./discord");
 const { loadConfig } = require("./config");
@@ -24,9 +26,10 @@ const db = new Firestore();
 const state = createCanvasState({ db });
 const limits = createRateLimits({ db });
 const pixels = createPixelStore({ db });
+const events = createPixelEvents({ topic: new PubSub().topic(config.pixelEventsTopic) });
 
 const handle = createWorker({
-  handlers: createHandlers({ state, limits, pixels, discord }),
+  handlers: createHandlers({ state, limits, pixels, events, discord }),
   authorizer: createAuthorizer(config),
   discord
 });

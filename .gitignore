@@ -51,3 +51,4 @@ deployment/k3s.yaml
 deployment/helm/*/charts/*.tgz
 google-cloud-sdk
 google-cloud-cli-linux-x86_64.tar.gz
+*.swp

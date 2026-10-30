@@ -1,0 +1,26 @@
+name: ARC smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/terraform-c04-gke]
+    paths: [.github/workflows/arc-smoke-test.yml]
+
+permissions: {}
+
+concurrency:
+  group: arc-smoke-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke-test:
+    runs-on: masterpoulet-gke-runners
+    timeout-minutes: 3
+    steps:
+      - name: Verify the GKE runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux
+          printf 'Runner hostname: %s\n' "$(hostname)"
+          printf 'ARC GKE smoke test succeeded on Linux\n'

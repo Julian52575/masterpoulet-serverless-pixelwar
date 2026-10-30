@@ -1,11 +1,228 @@
-# ARC — préparation du contrôleur officiel via Terraform
+# ARC — contrôleur et runner scale set sur GKE DEV
 
 [Guide infrastructure](../README.md) · [GKE](../gke/README.md) · [Réseau](../foundation/README.md)
 
-Cette stack prépare **uniquement le contrôleur GitHub Actions Runner Controller
-(ARC)** de l'architecture officielle **Autoscaling Runner Scale Sets**. Elle ne
-crée pas de cluster, de VM, de runner scale set, de GitHub App ou de credential
-GitHub. Aucun déploiement n'a été effectué pendant cette étape.
+Cette stack gère le contrôleur **Actions Runner Controller (ARC)** et le
+**runner scale set** officiel. Elle utilise le cluster existant et un Secret
+GitHub géré hors Terraform. Elle ne crée ni cluster, ni VM, ni credential GitHub.
+
+## État vérifié le 30 octobre 2026
+
+- Backend GCS DEV : `masterpoulet_bucket`, préfixe `runners/dev`, workspace `default`.
+- Contrôleur existant `arc` : chart `0.15.0`, Deployment disponible `1/1`,
+  service account `arc-controller` dans `arc-systems`.
+- Namespace `arc-runners` et Secret `github-pat-arc` présents ; seul le nom du
+  Secret a été consulté, jamais sa valeur.
+- Plan enregistré et appliqué : **1 création, 0 modification, 0 suppression**,
+  uniquement `helm_release.arc_runner_scale_set`. Plan après application : aucun changement.
+- Les deux releases Helm sont `deployed`, mais le scale set est **Pending** :
+  GitHub refuse l'enregistrement avec `403 Resource not accessible by personal access token`.
+  Aucun listener ni runner n'a donc pu démarrer. Une release Helm déployée ne
+  prouve pas qu'un job peut s'exécuter.
+- Un nœud `Ready`, pool `github-runners` de type `e2-standard-2`, autoscaling
+  activé de **1 à 2**. La montée à deux nœuds n'a pas été forcée.
+- Workflow de démonstration préparé ; aucune exécution réussie ni suppression
+  d'un runner après job n'est encore démontrée.
+
+Le propriétaire du PAT doit vérifier le resource owner, le dépôt sélectionné,
+la validité et la permission **Administration: Read and write**. Corriger le PAT
+ou sa référence externe n'exige pas d'en copier la valeur dans Terraform.
+
+## Architecture et paramètres du scale set
+
+`controller.tf` reste inchangé. `scale-set.tf` ajoute une release dépendant de
+`helm_release.arc_controller`, avec référence explicite à `arc-systems/arc-controller`.
+Les namespaces et le Secret existants restent gérés hors de cette stack.
+
+| Paramètre | Valeur |
+| --- | --- |
+| Release / `runs-on` | `masterpoulet-gke-runners` |
+| Namespace | `arc-runners` |
+| Chart officiel | `gha-runner-scale-set`, version `0.15.0` |
+| Dépôt GitHub | `https://github.com/Julian52575/masterpoulet-serverless-pixelwar` |
+| Secret existant / clé attendue | `github-pat-arc` / `github_token` |
+| Runners au repos / maximum total | `0` / `2` |
+| Image officielle du runner | `ghcr.io/actions/actions-runner:2.338.2` |
+| Placement contrôleur, listener et runners | pool `github-runners` |
+| Runner CPU : demande / limite | `500m` / `1` |
+| Runner mémoire : demande / limite | `512Mi` / `1Gi` |
+| Runner stockage éphémère : demande / limite | `1Gi` / `2Gi` |
+| Listener CPU : demande / limite | `100m` / `500m` |
+| Listener mémoire : demande / limite | `128Mi` / `256Mi` |
+
+Le contrôleur réconcilie les objets ARC et enregistre le scale set auprès de
+GitHub. Le listener écoute les jobs affectés au scale set et ajuste le nombre
+de runners. Chaque runner exécute un job, puis ARC supprime le runner éphémère
+et son Pod. `minRunners = 0` demande un retour à zéro runner lorsque les jobs
+sont terminés ; le contrôleur et le listener restent présents.
+
+Le chart officiel et ses valeurs ont été lus avec `helm show values ... --version
+0.15.0` avant déploiement. Digest OCI du chart scale set observé :
+`sha256:bdfdad17cf8e45ae064c73ed6764f0c75d4bf71a6e2912e6363a43d6dfc787de`.
+L'image du runner est épinglée à la release officielle `2.338.2` ; revoir
+régulièrement cette version pour conserver les correctifs et la compatibilité GitHub.
+
+Les jobs utilisent des commandes Linux directement dans le conteneur : aucun
+Docker-in-Docker, socket Docker ou mode Kubernetes de jobs conteneurisés.
+Les conteneurs sont non root, sans élévation de privilèges, capabilities
+retirées et seccomp `RuntimeDefault`. Les runners ne montent pas de jeton de
+service account Kubernetes. Le répertoire de travail du runner reste inscriptible.
+
+## Maintenance DEV
+
+Les sections historiques plus bas conservent les vérifications de préparation
+du 23 octobre ; elles ne décrivent pas le statut du déploiement du 30 octobre.
+Exécuter les commandes suivantes depuis `infra/runners` :
+
+```powershell
+terraform init -reconfigure -backend-config="backends/dev.hcl" -input=false
+if ($LASTEXITCODE -ne 0) { throw 'Backend DEV indisponible.' }
+$arcBackend = Get-Content .terraform/terraform.tfstate -Raw | ConvertFrom-Json
+if ($arcBackend.backend.type -ne 'gcs' -or $arcBackend.backend.config.bucket -ne 'masterpoulet_bucket' -or $arcBackend.backend.config.prefix -ne 'runners/dev') { throw 'Backend inattendu.' }
+$arcWorkspace = terraform workspace show
+if ($LASTEXITCODE -ne 0 -or $arcWorkspace -ne 'default') { throw 'Workspace inattendu.' }
+terraform fmt -check -recursive
+terraform validate
+terraform state list
+terraform plan -var-file="dev.tfvars" -input=false -lock-timeout=60s -out="dev-runners.tfplan"
+if ($LASTEXITCODE -ne 0) { throw 'Plan impossible.' }
+terraform show dev-runners.tfplan
+```
+
+Confirmer aussi le projet `masterpoulet-dev`, le cluster `masterpoulet-dev-gke`
+et la zone `europe-west1-b`. Une fois le plan revu et autorisé, appliquer
+uniquement le plan enregistré, puis refaire un plan et les contrôles Kubernetes.
+Ne pas appliquer une suppression, un remplacement ou une modification inattendue.
+Ne pas importer ou recréer une release déjà existante sans comprendre sa propriété.
+Ne pas installer avec `helm install` en parallèle de Terraform.
+
+## Vérifications et diagnostic
+
+Dans un terminal PowerShell, imposer le contexte pour chaque commande :
+
+```powershell
+$arcContext = 'gke_masterpoulet-dev_europe-west1-b_masterpoulet-dev-gke'
+kubectl --context=$arcContext get nodes -L cloud.google.com/gke-nodepool
+kubectl --context=$arcContext get namespaces arc-systems arc-runners
+kubectl --context=$arcContext -n arc-runners get secret github-pat-arc -o name
+kubectl --context=$arcContext -n arc-systems get deployments,pods
+kubectl --context=$arcContext -n arc-runners get pods
+kubectl --context=$arcContext get autoscalingrunnersets,autoscalinglisteners,ephemeralrunnersets,ephemeralrunners -A
+kubectl --context=$arcContext -n arc-runners get events --sort-by=.metadata.creationTimestamp
+kubectl --context=$arcContext -n arc-systems get events --sort-by=.metadata.creationTimestamp
+helm list --all-namespaces --kube-context $arcContext
+```
+
+Le listener se trouve normalement dans `arc-systems` ; chercher les Pods dans
+les deux namespaces. Consulter localement les logs du contrôleur (`kubectl
+--context=$arcContext -n arc-systems logs deployment/arc-gha-rs-controller
+--since=10m`) et du Pod listener identifié, sans les publier bruts. Ne jamais
+activer de logs debug susceptibles d'afficher des informations d'authentification.
+
+| Symptôme | Vérifications |
+| --- | --- |
+| Scale set Pending, GitHub 403 | Propriétaire du PAT, dépôt autorisé et Administration en lecture/écriture ; ne pas remplacer par un rôle Kubernetes plus large. |
+| GitHub 401 | Validité, expiration ou révocation du PAT à vérifier par son propriétaire. |
+| Secret introuvable | Nom et namespace `arc-runners` ; arrêter le déploiement, sans demander la valeur du PAT. |
+| Listener absent | Conditions du scale set, logs du contrôleur, RBAC vers `arc-controller`. |
+| Runner Pending | Événements, requests, capacité disponible, label du pool, taints et état du cluster autoscaler. |
+| ImagePullBackOff | Accès GHCR via NAT et existence de l'image ; ne pas désactiver TLS. |
+| Job en attente | Label `runs-on`, état du listener, droits GitHub, workflow/ref réellement présents sur GitHub. |
+
+Un namespace vide n'est pas une preuve du retour à zéro après un job : vérifier
+d'abord une exécution réussie et observer la création puis la suppression du Pod.
+
+## Workflow et preuve d'exécution
+
+`.github/workflows/arc-smoke-test.yml` utilise uniquement
+`runs-on: masterpoulet-gke-runners`, `permissions: {}`, aucun checkout et aucun
+secret supplémentaire. Il vérifie Linux et affiche le hostname et un message
+de réussite. Le job a un timeout de trois minutes une fois démarré ; ce timeout
+ne borne pas le temps passé dans la file d'attente.
+
+Le premier push du fichier sur **feat/terraform-c04-gke** déclenche le test grâce
+au filtre de branche et de chemin. Les autres fichiers ne déclenchent pas ce
+workflow. `workflow_dispatch` ne devient disponible qu'après présence du
+workflow sur la branche par défaut. Ne pas modifier les workflows de production.
+
+Après correction du 403 et apparition d'un listener sain, pousser une seule fois
+le commit autorisé, puis, si `gh` est connecté au dépôt :
+
+```powershell
+gh run list --repo Julian52575/masterpoulet-serverless-pixelwar --workflow arc-smoke-test.yml --branch feat/terraform-c04-gke --limit 1
+# Reporter l'identifiant obtenu dans les commandes suivantes :
+gh run watch RUN_ID --repo Julian52575/masterpoulet-serverless-pixelwar --exit-status
+gh run view RUN_ID --repo Julian52575/masterpoulet-serverless-pixelwar --log
+kubectl --context=$arcContext -n arc-runners get pods --watch
+```
+
+Commencer la surveillance des Pods avant le push : le job est court. Conserver
+le lien du run, le runner attribué au job, le hostname, le succès de l'étape,
+les événements de création/suppression et le retour à zéro runners. Un runner
+seulement enregistré ne suffit pas. En cas de 403 persistant, ne pas envoyer
+de job qui resterait en attente ; annuler un éventuel run déjà en file.
+
+## Sécurité, rotation du PAT et coût
+
+Le PAT fine-grained appartient à Julian, est limité au dépôt autorisé et exige
+**Administration: Read and write** pour les jetons d'enregistrement. Ne jamais
+lire la valeur du Secret, l'importer dans Terraform, l'afficher ou la committer.
+`set_sensitive` ne protège pas le contenu du state ; la stack ne passe que le
+nom du Secret. Les états, plans, kubeconfigs et credentials restent hors Git.
+
+Pour la rotation, le propriétaire prépare un nouveau PAT de portée minimale
+et le confie au mécanisme sécurisé qui gère déjà le Secret. Un opérateur autorisé
+met à jour **le même Secret**, même namespace et clé `github_token`, sans
+argument en clair, historique shell ou sortie de manifeste. Ne pas utiliser
+`kubectl get secret -o yaml/json` ni une data source Terraform pour cette étape.
+Attendre la réconciliation et vérifier l'absence de 401/403 ainsi qu'un vrai job.
+Révoquer l'ancien PAT après validation, ou immédiatement s'il est compromis.
+Si le contrôleur conserve un ancien client d'authentification en cache, un
+redémarrage coordonné de son Deployment peut être nécessaire ; ne pas recréer
+la release ou élargir ses permissions pour contourner le problème.
+
+Le dépôt étant public, réserver les runners à des workflows de confiance ;
+ne pas ajouter de déclenchement sur des contributions externes non approuvées.
+Les jobs ont une connectivité réseau : l'éphémérité et l'absence de jeton
+Kubernetes ne constituent pas une isolation réseau complète.
+
+Deux runners demandent au total `1` CPU et `1Gi` de mémoire, en plus du
+contrôleur, du listener et des composants système GKE. Vérifier les ressources
+allouables et les requests existantes ; les limites ne réservent pas la capacité.
+Zéro runner au repos n'implique pas zéro VM : le pool conserve au moins un nœud,
+et contrôleur/listener, disques, NAT et logs continuent de consommer des ressources.
+
+Pour tester le passage de 1 à 2 nœuds, convenir d'une fenêtre et d'un budget,
+mesurer les requests déjà présentes, puis utiliser temporairement une charge
+de confiance bornée qui laisse un runner Pending faute de capacité. Observer
+les événements d'ordonnancement, les décisions du cluster autoscaler et le
+second nœud Ready. Terminer la charge, vérifier la suppression des runners puis
+le retour à un nœud après le délai du cluster autoscaler. Ne pas dépasser deux
+runners, modifier les taints ou forcer le nombre de nœuds. Le smoke test seul
+ne démontre pas cette montée en charge ; aucun test coûteux n'a été lancé ici.
+
+## Nettoyage prévu, non exécuté
+
+Arrêter les déclenchements et attendre la fin des jobs. Dans une modification
+Terraform séparée et revue, retirer d'abord `helm_release.arc_runner_scale_set`,
+planifier sur DEV et vérifier que seule cette release est supprimée. Après
+autorisation explicite de ce nettoyage, appliquer le plan revu. Vérifier que
+listener, runners et enregistrement GitHub ont disparu avant d'envisager le
+retrait du contrôleur par un second changement Terraform. Ne jamais supprimer
+les deux simultanément en ignorant les finalizers ARC. Ne pas forcer les
+finalizers si GitHub est inaccessible.
+
+Le Secret et le namespace préexistants restent hors propriété Terraform ; ne
+pas les supprimer automatiquement. Les CRD peuvent subsister après retrait du
+contrôleur : vérifier qu'aucun autre scale set ne les utilise. Les stacks GKE et
+foundation ont un cycle de vie distinct. Aucune commande de destruction n'a été
+exécutée pendant cette mission.
+
+## Historique : préparation du contrôleur au 23 octobre 2026
+
+Les sections suivantes décrivent l'étape initiale, avant le déploiement du
+contrôleur puis l'ajout du scale set. Les mentions « futur » et « aucun
+déploiement » ci-dessous s'appliquent uniquement à cette préparation historique.
 
 ## Ce que fait le contrôleur
 

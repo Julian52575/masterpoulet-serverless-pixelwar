@@ -6,7 +6,18 @@ Cette stack gère le contrôleur **Actions Runner Controller (ARC)** et le
 **runner scale set** officiel. Elle utilise le cluster existant et un Secret
 GitHub géré hors Terraform. Elle ne crée ni cluster, ni VM, ni credential GitHub.
 
-## État vérifié le 30 octobre 2026
+## Vérification après correction du PAT, 30 octobre 2026
+
+Lors de l'intégration de `feat/serverless-deployment`, le contrôleur et le
+listener ont été observés `Running` et disponibles `1/1`. Le scale set est
+`Running`, avec minimum zéro et maximum deux runners. Le
+[smoke test sur le commit 554dc7c](https://github.com/Julian52575/masterpoulet-serverless-pixelwar/actions/runs/41059039569)
+a terminé avec succès. Les plans DEV foundation, GKE et runners ne proposent
+aucun changement après résolution des conflits. Aucun apply ni destroy n'a été
+exécuté pendant cette intégration. Ces observations remplacent le blocage
+initial ci-dessous ; la rotation du PAT reste extérieure à Terraform.
+
+## Historique du déploiement initial du 30 octobre 2026
 
 - Backend GCS DEV : `masterpoulet_bucket`, préfixe `runners/dev`, workspace `default`.
 - Contrôleur existant `arc` : chart `0.15.0`, Deployment disponible `1/1`,

@@ -4,7 +4,7 @@ name: check-conventional-commit-pr-title
 # rule-for-rule identical to the local hook .githooks/check-conventional-commit-msg.
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
 
 # Cancel superseded runs for the same PR.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

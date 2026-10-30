@@ -1,6 +1,10 @@
 # actionlint configuration.
 # https://github.com/rhysd/actionlint/blob/main/docs/config.md
 
+self-hosted-runner:
+  labels:
+    - masterpoulet-gke-runners
+
 paths:
   .github/workflows/adr-discussion-sync.yml:
     ignore:

@@ -3291,7 +3291,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/App.tsx",
+                      "uri": "frontend/src/App.test.tsx",
                       "uriBaseId": "%SRCROOT%",
                       "index": 10
                     }
@@ -3320,7 +3320,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/App.test.tsx",
+                      "uri": "frontend/src/App.tsx",
                       "uriBaseId": "%SRCROOT%",
                       "index": 11
                     }
@@ -3407,7 +3407,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/tiles.test.ts",
+                      "uri": "frontend/src/tiles.ts",
                       "uriBaseId": "%SRCROOT%",
                       "index": 14
                     }
@@ -3436,7 +3436,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/tiles.ts",
+                      "uri": "frontend/src/tiles.test.ts",
                       "uriBaseId": "%SRCROOT%",
                       "index": 15
                     }
@@ -3465,9 +3465,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/env.js",
+                      "uri": "backend/src/palette.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 2
+                      "index": 4
                     }
                   }
                 }
@@ -3491,9 +3491,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/palette.js",
+                      "uri": "backend/src/env.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 4
+                      "index": 2
                     }
                   }
                 }
@@ -3647,9 +3647,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/png.js",
+                      "uri": "backend/src/app.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 5
+                      "index": 0
                     }
                   }
                 }
@@ -3673,9 +3673,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/app.js",
+                      "uri": "backend/src/png.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 0
+                      "index": 5
                     }
                   }
                 }
@@ -3727,7 +3727,7 @@
                     "artifactLocation": {
                       "uri": "frontend/src/tiles.ts",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 15
+                      "index": 14
                     }
                   }
                 }
@@ -3753,7 +3753,7 @@
                     "artifactLocation": {
                       "uri": "frontend/src/tiles.test.ts",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 14
+                      "index": 15
                     }
                   }
                 }
@@ -3805,7 +3805,7 @@
                     "artifactLocation": {
                       "uri": "frontend/src/App.tsx",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 10
+                      "index": 11
                     }
                   }
                 }
@@ -3857,7 +3857,7 @@
                     "artifactLocation": {
                       "uri": "frontend/src/App.test.tsx",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 11
+                      "index": 10
                     }
                   }
                 }
@@ -3881,7 +3881,7 @@
                 "text": ""
               },
               "level": "none",
-              "timeUtc": "2026-10-23T13:04:51.644Z",
+              "timeUtc": "2026-10-24T14:49:01.767Z",
               "descriptor": {
                 "id": "codeql-action/overlay-disabled",
                 "index": 2
@@ -3973,14 +3973,14 @@
         },
         {
           "location": {
-            "uri": "frontend/src/App.tsx",
+            "uri": "frontend/src/App.test.tsx",
             "uriBaseId": "%SRCROOT%",
             "index": 10
           }
         },
         {
           "location": {
-            "uri": "frontend/src/App.test.tsx",
+            "uri": "frontend/src/App.tsx",
             "uriBaseId": "%SRCROOT%",
             "index": 11
           }
@@ -4001,14 +4001,14 @@
         },
         {
           "location": {
-            "uri": "frontend/src/tiles.test.ts",
+            "uri": "frontend/src/tiles.ts",
             "uriBaseId": "%SRCROOT%",
             "index": 14
           }
         },
         {
           "location": {
-            "uri": "frontend/src/tiles.ts",
+            "uri": "frontend/src/tiles.test.ts",
             "uriBaseId": "%SRCROOT%",
             "index": 15
           }
@@ -4055,7 +4055,7 @@
         "codeqlConfigSummary": {
           "disableDefaultQueries": false
         },
-        "jobRunUuid": "01ff6103-1a50-431c-b9be-d7b5525326c3"
+        "jobRunUuid": "f476cb43-56a8-45b1-b9d0-621b1f491f20"
       }
     }
   ]

@@ -4,7 +4,7 @@
 
 Cette stack prépare le réseau utilisé par GKE. Elle gère **quatre ressources**
 par environnement, pas de VM ni de cluster. Le même code utilise dev.tfvars ou
-prd.tfvars ; le provider cible explicitement var.project_id.
+prod.tfvars ; le provider cible explicitement var.project_id.
 
 ## Ressources et responsabilités
 
@@ -92,7 +92,7 @@ générale ; Cloud NAT répond à ce second besoin.
 | Cible | Couple de fichiers | Bucket / préfixe |
 | --- | --- | --- |
 | DEV | backends/dev.hcl + dev.tfvars | masterpoulet_bucket / foundation/dev |
-| PROD | backends/prd.hcl + prd.tfvars | masterpoulet_prod_bucket / foundation/prd |
+| PROD | backends/prod.hcl + prod.tfvars | masterpoulet_prod_bucket / foundation/prd |
 
 Le backend générique est dans backend.tf. Les objets sont
 foundation/dev/default.tfstate et foundation/prd/default.tfstate dans leurs
@@ -132,7 +132,7 @@ terraform state list
 terraform output
 ```
 
-Pour PROD, reprendre la même procédure avec **backends/prd.hcl et prd.tfvars** ;
+Pour PROD, reprendre la même procédure avec **backends/prod.hcl et prod.tfvars** ;
 ne pas lancer un plan PROD avec le backend DEV. Les étapes d'application avec
 confirmation sont [dans le guide principal](../README.md#planifier-et-déployer).
 Un apply peut supprimer/remplacer selon le plan : ne jamais le déduire du seul nom
@@ -150,6 +150,28 @@ Le script distant n'utilise pas -reconfigure et appelle gcloud plutôt que
 explicitement gcloud.cmd. En cas de changement de backend ou de politique
 PowerShell restrictive, utiliser les commandes explicites ci-dessus. Ne pas
 modifier le script ni désactiver une politique du PC pour suivre ce guide.
+
+### Inspection Python et CI après intégration de Julian
+
+L'inspecteur `scripts/check.py`, ses règles d'exclusion et ses tests sont
+conservés. Il compare la configuration à GCP sans lire le state ni lancer
+Terraform. Voir [son guide](scripts/README.md). Utiliser explicitement DEV :
+
+```powershell
+python scripts/check.py --env dev
+python -m unittest discover -s scripts
+```
+
+Sans `--env dev`, l'inspecteur consulte aussi PROD. Ses champs non vérifiés,
+dont les blocs des plages secondaires, ne remplacent jamais un plan Terraform.
+L'ancien `check.ps1` reste disponible en complément.
+
+La CI conserve les deux contrôles : `terraform-validate` valide toutes les
+stacks sans credentials, et `terraform` réalise les plans foundation de Julian.
+Deploy applique DEV puis PROD sur les tags de version correspondants ; Destroy
+est manuel. Aucun de ces deux workflows ne se déclenche sur un push de branche
+ou une PR. Ne pas pousser de tag pour cette intégration. Une suppression du
+réseau demande une revue séparée des consommateurs GKE avant tout déclenchement.
 
 ### Contrôler dans GCP
 
@@ -245,11 +267,11 @@ publiques des tfvars, le backend générique et la séparation des buckets sont
 conservés ; aucun credential n'est ajouté aux fichiers partagés.
 
 La révision C02 fusionnée a2b4732 utilise toujours prd.tfvars et backends/prd.hcl.
-Aucun renommage prod.tfvars/prod.hcl n'est présent dans cette révision. Le merge
-conserve donc ces chemins cohérents et les préfixes foundation/dev et
-foundation/prd, sans migration d'état. Si les fichiers sont renommés plus tard,
-mettre à jour les commandes et références sans renommer le projet GCP, les
-ressources ou le préfixe du state existant.
+Ce constat est historique. L'intégration de `feat/serverless-deployment`
+adopte désormais `prod.tfvars` et `backends/prod.hcl` dans toutes les stacks,
+sans changer les préfixes `foundation/dev` et `foundation/prd`. Les plages
+secondaires GKE des deux environnements sont conservées. Les noms des projets,
+ressources et objets state restent inchangés ; aucune migration n'est nécessaire.
 
 Contrôle DEV au moment de cette fusion : le backend foundation/dev contient
 le VPC et le subnet ; l'inventaire GCP des Cloud Router est vide. Le plan prévoit

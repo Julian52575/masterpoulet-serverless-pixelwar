@@ -120,14 +120,15 @@ de préparation ; elles ne constituent pas une garantie permanente de santé.
 ### Backends et states
 
 Tous utilisent le workspace **default**. Les chemins backend sont relatifs à
-chaque stack, et les noms PROD s'écrivent **prd**, pas prod.
+chaque stack. Les fichiers PROD se nomment **prod**, avec les préfixes
+historiques **prd** conservés dans GCS.
 
 | Stack / cible | Fichier backend | Bucket | Préfixe | Objet state |
 | --- | --- | --- | --- | --- |
 | foundation DEV | backends/dev.hcl | masterpoulet_bucket | foundation/dev | foundation/dev/default.tfstate |
-| foundation PROD | backends/prd.hcl | masterpoulet_prod_bucket | foundation/prd | foundation/prd/default.tfstate |
+| foundation PROD | backends/prod.hcl | masterpoulet_prod_bucket | foundation/prd | foundation/prd/default.tfstate |
 | GKE DEV | backends/dev.hcl | masterpoulet_bucket | gke/dev | gke/dev/default.tfstate |
-| GKE PROD | backends/prd.hcl | masterpoulet_prod_bucket | gke/prd | gke/prd/default.tfstate |
+| GKE PROD | backends/prod.hcl | masterpoulet_prod_bucket | gke/prd | gke/prd/default.tfstate |
 
 Les trois premiers objets ont été trouvés. Aucun objet trouvé à `gke/prd` ne
 prouve pas l'absence de ressources hors Terraform. Les buckets existent, ne sont
@@ -272,13 +273,13 @@ Ne pas contourner une erreur de permission en ajoutant des rôles généraux.
 ## Sélectionner la stack et le backend
 
 Le couple est **backends/dev.hcl + dev.tfvars** pour DEV, et
-**backends/prd.hcl + prd.tfvars** pour PROD. Depuis un dossier du dépôt, choisir
+**backends/prod.hcl + prod.tfvars** pour PROD. Depuis un dossier du dépôt, choisir
 la cible dans les deux premières lignes. Ce bloc initialise **GKE DEV** :
 
 ```powershell
 $infraStack = 'gke'       # foundation ou gke
-$infraEnv = 'dev'         # dev ou prd
-if ($infraStack -notin @('foundation', 'gke') -or $infraEnv -notin @('dev', 'prd')) { throw 'Cible invalide.' }
+$infraEnv = 'dev'         # dev ou prod
+if ($infraStack -notin @('foundation', 'gke') -or $infraEnv -notin @('dev', 'prod')) { throw 'Cible invalide.' }
 $infraRepoRoot = git rev-parse --show-toplevel
 if ($LASTEXITCODE -ne 0) { throw 'Ouvrir un dossier du dépôt Git.' }
 Set-Location (Join-Path $infraRepoRoot "infra/$infraStack")
@@ -290,7 +291,8 @@ $infraWorkspace = terraform workspace show
 if ($LASTEXITCODE -ne 0 -or $infraWorkspace -ne 'default') { throw 'Workspace default requis.' }
 $infraBackend = Get-Content .terraform/terraform.tfstate -Raw | ConvertFrom-Json
 $infraBucket = if ($infraEnv -eq 'dev') { 'masterpoulet_bucket' } else { 'masterpoulet_prod_bucket' }
-if ($infraBackend.backend.type -ne 'gcs' -or $infraBackend.backend.config.bucket -ne $infraBucket -or $infraBackend.backend.config.prefix -ne "$infraStack/$infraEnv") { throw 'Backend inattendu.' }
+$infraStateEnv = if ($infraEnv -eq 'prod') { 'prd' } else { 'dev' }
+if ($infraBackend.backend.type -ne 'gcs' -or $infraBackend.backend.config.bucket -ne $infraBucket -or $infraBackend.backend.config.prefix -ne "$infraStack/$infraStateEnv") { throw 'Backend inattendu.' }
 terraform state list
 if ($LASTEXITCODE -ne 0) { throw 'Lecture du state impossible.' }
 ```
@@ -304,13 +306,13 @@ Pour passer à PROD dans la même stack, revoir les valeurs puis utiliser le
 couple complet, après accord de l'équipe :
 
 ```powershell
-terraform init -reconfigure -backend-config="backends/prd.hcl" -input=false
+terraform init -reconfigure -backend-config="backends/prod.hcl" -input=false
 if ($LASTEXITCODE -ne 0) { throw 'Échec init PROD.' }
-terraform plan -var-file="prd.tfvars" -input=false -lock-timeout=60s
+terraform plan -var-file="prod.tfvars" -input=false -lock-timeout=60s
 ```
 
 Avant les procédures génériques suivantes, réexécuter le bloc de sélection avec
-$infraEnv='prd' si PROD est voulu : ne pas laisser les variables PowerShell sur DEV.
+$infraEnv='prod' si PROD est voulu : ne pas laisser les variables PowerShell sur DEV.
 Le retour DEV exige dev.hcl puis dev.tfvars. Un nouveau terminal ne réinitialise
 pas le backend mémorisé dans `.terraform/`. Un mauvais couple peut viser un
 mauvais projet ou enregistrer des ressources dans le mauvais state : **arrêter au

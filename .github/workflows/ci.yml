@@ -142,6 +142,34 @@ jobs:
           echo "frontend did not respond on :4173 in time" >&2
           exit 1
 
+  functions:
+    name: functions (${{ matrix.function }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        function: [discord-proxy, command-worker, snapshot-worker, snapshot-notifier]
+    defaults:
+      run:
+        working-directory: functions/bot/${{ matrix.function }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: functions/bot/${{ matrix.function }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
   # Every Dockerfile / Containerfile tracked in the repo -- a new one is
   # picked up without touching this workflow. Mounts the repo so hadolint
   # reads a root .hadolint.yaml if one exists.
@@ -223,15 +251,22 @@ jobs:
   # Not a prerequisite of `stack`: a new advisory should not block the
   # integration run, only `ci-required`.
   dependencies-audit:
-    name: dependencies-audit (${{ matrix.workspace }})
+    name: dependencies-audit (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        workspace: [frontend, backend]
+        include:
+          - { name: frontend, workspace: frontend }
+          - { name: backend, workspace: backend }
+          - { name: discord-proxy, workspace: functions/bot/discord-proxy }
+          - { name: command-worker, workspace: functions/bot/command-worker }
+          - { name: snapshot-worker, workspace: functions/bot/snapshot-worker }
+          - { name: snapshot-notifier, workspace: functions/bot/snapshot-notifier }
     env:
       WS: ${{ matrix.workspace }}
+      NAME: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -248,7 +283,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dependency-audit
-          raw="dependency-audit/${WS}.json"
+          raw="dependency-audit/${NAME}.json"
 
           # --- collect `npm audit`, retrying transient failures ---
           for attempt in 1 2 3; do
@@ -318,7 +353,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dependency-audit-${{ matrix.workspace }}
+          name: dependency-audit-${{ matrix.name }}
           path: dependency-audit
           if-no-files-found: warn
 
@@ -517,6 +552,7 @@ jobs:
       - devshell
       - backend
       - frontend
+      - functions
       - dockerfile-lint
       - compose-lint
       - workflow-lint

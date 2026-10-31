@@ -11,7 +11,7 @@ describe("code shared with the other services", () => {
     assert.equal(
       fs.readFileSync(path.join(__dirname, "discord.js"), "utf8"),
       fs.readFileSync(path.join(commandWorker, "discord.js"), "utf8"),
-      "copy discord.js again from functions/command-worker"
+      "copy discord.js again from functions/bot/command-worker"
     );
   });
 

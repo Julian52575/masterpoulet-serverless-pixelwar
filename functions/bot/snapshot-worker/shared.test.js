@@ -11,7 +11,7 @@ describe("code shared with the command-worker", () => {
       assert.equal(
         fs.readFileSync(path.join(__dirname, file), "utf8"),
         fs.readFileSync(path.join(commandWorker, file), "utf8"),
-        `copy ${file} again from functions/command-worker`
+        `copy ${file} again from functions/bot/command-worker`
       );
     });
   }

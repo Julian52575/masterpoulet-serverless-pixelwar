@@ -83,8 +83,8 @@ infra/
     ├── README.md
     ├── backend.tf, providers.tf, variables.tf
     ├── network.tf, iam.tf, cluster.tf, node-pool.tf, outputs.tf
-    ├── dev.tfvars, prd.tfvars
-    ├── backends/dev.hcl, backends/prd.hcl
+    ├── dev.tfvars, prod.tfvars
+    ├── backends/dev.hcl, backends/prod.hcl
     └── .gitignore, .terraform.lock.hcl
 ```
 
@@ -120,13 +120,13 @@ de préparation ; elles ne constituent pas une garantie permanente de santé.
 ### Backends et states
 
 Tous utilisent le workspace **default**. Les chemins backend sont relatifs à
-chaque stack. Les fichiers PROD se nomment **prod**, avec les préfixes
-historiques **prd** conservés dans GCS.
+chaque stack. Foundation conserve les fichiers **prd** de C02 ; GKE et runners
+conservent leurs fichiers **prod** de C04. Les préfixes GCS restent inchangés.
 
 | Stack / cible | Fichier backend | Bucket | Préfixe | Objet state |
 | --- | --- | --- | --- | --- |
 | foundation DEV | backends/dev.hcl | masterpoulet_bucket | foundation/dev | foundation/dev/default.tfstate |
-| foundation PROD | backends/prod.hcl | masterpoulet_prod_bucket | foundation/prd | foundation/prd/default.tfstate |
+| foundation PROD | backends/prd.hcl | masterpoulet_prod_bucket | foundation/prd | foundation/prd/default.tfstate |
 | GKE DEV | backends/dev.hcl | masterpoulet_bucket | gke/dev | gke/dev/default.tfstate |
 | GKE PROD | backends/prod.hcl | masterpoulet_prod_bucket | gke/prd | gke/prd/default.tfstate |
 
@@ -149,7 +149,7 @@ Le **provider** traduit le code en appels API. Les stacks utilisent
 Terraform CLI doit respecter `>= 1.6.0, < 2.0.0`.
 
 Les **variables** décrivent les paramètres dans `variables.tf`. `dev.tfvars`
-et `prd.tfvars` apportent les valeurs ; sous ces noms, ils nécessitent
+et `prd.tfvars` (foundation) ou `prod.tfvars` (GKE) apportent les valeurs ; ils nécessitent
 `-var-file` et ne sont pas chargés automatiquement. Les providers définissent
 `project = var.project_id` : le projet actif gcloud ne remplace pas cette valeur.
 
@@ -272,20 +272,22 @@ Ne pas contourner une erreur de permission en ajoutant des rôles généraux.
 
 ## Sélectionner la stack et le backend
 
-Le couple est **backends/dev.hcl + dev.tfvars** pour DEV, et
-**backends/prod.hcl + prod.tfvars** pour PROD. Depuis un dossier du dépôt, choisir
-la cible dans les deux premières lignes. Ce bloc initialise **GKE DEV** :
+Le couple est **backends/dev.hcl + dev.tfvars** pour DEV. Pour PROD, foundation
+utilise **backends/prd.hcl + prd.tfvars**, GKE utilise
+**backends/prod.hcl + prod.tfvars**. Depuis un dossier du dépôt, choisir la cible
+dans les deux premières lignes. Ce bloc initialise **GKE DEV** :
 
 ```powershell
 $infraStack = 'gke'       # foundation ou gke
 $infraEnv = 'dev'         # dev ou prod
 if ($infraStack -notin @('foundation', 'gke') -or $infraEnv -notin @('dev', 'prod')) { throw 'Cible invalide.' }
+$infraConfigEnv = if ($infraEnv -eq 'prod' -and $infraStack -eq 'foundation') { 'prd' } else { $infraEnv }
 $infraRepoRoot = git rev-parse --show-toplevel
 if ($LASTEXITCODE -ne 0) { throw 'Ouvrir un dossier du dépôt Git.' }
 Set-Location (Join-Path $infraRepoRoot "infra/$infraStack")
-Get-Content "backends/$infraEnv.hcl"
-Get-Content "$infraEnv.tfvars"
-terraform init -reconfigure -backend-config="backends/$infraEnv.hcl" -input=false
+Get-Content "backends/$infraConfigEnv.hcl"
+Get-Content "$infraConfigEnv.tfvars"
+terraform init -reconfigure -backend-config="backends/$infraConfigEnv.hcl" -input=false
 if ($LASTEXITCODE -ne 0) { throw 'Échec init : ne pas continuer.' }
 $infraWorkspace = terraform workspace show
 if ($LASTEXITCODE -ne 0 -or $infraWorkspace -ne 'default') { throw 'Workspace default requis.' }
@@ -302,13 +304,14 @@ pas le state distant des ressources. N'afficher que ses champs utiles, jamais
 d'éventuels credentials. `-reconfigure` choisit un backend sans migrer les états.
 Ne jamais accepter une migration DEV→PROD ou foundation→GKE.
 
-Pour passer à PROD dans la même stack, revoir les valeurs puis utiliser le
-couple complet, après accord de l'équipe :
+Pour passer à PROD dans la même stack, revoir les valeurs et réexécuter le bloc
+de sélection avec `$infraEnv = 'prod'`, après accord de l'équipe. Le couple
+complet dépend de la stack :
 
 ```powershell
-terraform init -reconfigure -backend-config="backends/prod.hcl" -input=false
+terraform init -reconfigure -backend-config="backends/$infraConfigEnv.hcl" -input=false
 if ($LASTEXITCODE -ne 0) { throw 'Échec init PROD.' }
-terraform plan -var-file="prod.tfvars" -input=false -lock-timeout=60s
+terraform plan -var-file="$infraConfigEnv.tfvars" -input=false -lock-timeout=60s
 ```
 
 Avant les procédures génériques suivantes, réexécuter le bloc de sélection avec
@@ -332,7 +335,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Format incorrect.' }
 terraform validate
 if ($LASTEXITCODE -ne 0) { throw 'Configuration invalide.' }
 $infraPlanFile = "$infraEnv.tfplan"
-terraform plan -var-file="$infraEnv.tfvars" -input=false -lock-timeout=60s -out="$infraPlanFile"
+terraform plan -var-file="$infraConfigEnv.tfvars" -input=false -lock-timeout=60s -out="$infraPlanFile"
 if ($LASTEXITCODE -ne 0) { throw 'Plan échoué : aucune application.' }
 terraform show "$infraPlanFile"
 if ($LASTEXITCODE -ne 0) { throw 'Plan illisible.' }
@@ -355,7 +358,7 @@ terraform apply "$infraPlanFile"
 if ($LASTEXITCODE -ne 0) { throw 'Application partielle possible : inspecter le state et refaire un plan.' }
 terraform output
 terraform state list
-terraform plan -var-file="$infraEnv.tfvars" -input=false -lock-timeout=60s
+terraform plan -var-file="$infraConfigEnv.tfvars" -input=false -lock-timeout=60s
 ```
 
 Sans plan enregistré, `terraform apply -var-file="dev.tfvars"` calcule un plan
@@ -375,7 +378,7 @@ des ressources Terraform. Depuis la stack sélectionnée :
 
 ```powershell
 $infraDestroyPlan = "$infraEnv-destroy.tfplan"
-terraform plan -destroy -var-file="$infraEnv.tfvars" -input=false -lock-timeout=60s -out="$infraDestroyPlan"
+terraform plan -destroy -var-file="$infraConfigEnv.tfvars" -input=false -lock-timeout=60s -out="$infraDestroyPlan"
 if ($LASTEXITCODE -ne 0) { throw 'Échec plan de nettoyage.' }
 terraform show "$infraDestroyPlan"
 ```

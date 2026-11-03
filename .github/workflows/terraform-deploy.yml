@@ -1,0 +1,93 @@
+# .github/workflows/terraform-deploy.yml
+name: Terraform Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "plan only shows changes in the job summary; apply also deploys them"
+        type: choice
+        options: [plan, apply]
+        default: plan
+      environment:
+        description: "Environment(s) to deploy; both runs dev before prod"
+        type: choice
+        options: [dev, prod, both]
+        default: dev
+      allow_destroy:
+        description: "Allow apply to delete or replace resources"
+        type: boolean
+        default: false
+      ref:
+        description: "Tag, branch or commit SHA to deploy (empty: the branch selected above)"
+        type: string
+        required: false
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+"] # release-please tags, e.g. 1.0.0
+permissions:
+  contents: read
+  id-token: write
+run-name: "Terraform ${{ inputs.mode || 'apply' }} ${{ inputs.environment || 'both' }} @ ${{ inputs.ref || github.ref_name }}"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1 # dev must succeed before prd
+      matrix:
+        # Tag pushes have no inputs and deploy both
+        env: ${{ fromJSON((inputs.environment == 'dev' && '["dev"]') || (inputs.environment == 'prod' && '["prod"]') || '["dev","prod"]') }}
+    environment: ${{ matrix.env }} # add required reviewers on prd
+    env:
+      MODE: ${{ inputs.mode || 'apply' }} # tag pushes always apply
+      TF_ENV: ${{ matrix.env }}
+    defaults:
+      run:
+        working-directory: infra/foundation
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false # keeps plan output clean for the summary
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - run: terraform init -input=false -backend-config="backends/${TF_ENV}.hcl"
+      - name: Plan
+        env:
+          REF: ${{ inputs.ref || github.ref_name }}
+        run: |
+          terraform plan -input=false -no-color -var-file="${TF_ENV}.tfvars" -out=tfplan
+          {
+            echo "## Terraform ${MODE}: ${TF_ENV}"
+            echo "Ref \`${REF}\` at \`$(git rev-parse HEAD)\`"
+            echo '```'
+            terraform show -no-color tfplan
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Destroy guard
+        env:
+          ALLOW_DESTROY: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
+        run: |
+          # Replacements count too: they delete before or after creating.
+          destroyed=$(terraform show -json tfplan \
+            | jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | .address')
+          [ -z "$destroyed" ] && exit 0
+          {
+            echo "### Resources to delete or replace"
+            echo '```'
+            echo "$destroyed"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MODE" = apply ] && [ "$ALLOW_DESTROY" != true ]; then
+            echo "::error::Plan deletes resources; rerun with allow_destroy to proceed:"
+            echo "$destroyed"
+            exit 1
+          fi
+          echo "::warning::Plan deletes resources:"
+          echo "$destroyed"
+      - name: Apply
+        if: env.MODE == 'apply'
+        run: terraform apply -input=false -auto-approve tfplan

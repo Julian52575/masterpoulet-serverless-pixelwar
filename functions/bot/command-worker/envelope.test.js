@@ -36,8 +36,8 @@ describe("parsePushMessage", () => {
   });
 
   test("keeps non-ASCII characters of the event intact", () => {
-    const result = parsePushMessage(push({ type: "draw", payload: { color: "rouge 🎨 éàü" } }));
-    assert.equal(result.event.payload.color, "rouge 🎨 éàü");
+    const result = parsePushMessage(push({ type: "draw", payload: { color: "crimson 🎨 éàü" } }));
+    assert.equal(result.event.payload.color, "crimson 🎨 éàü");
   });
 
   test("reads message_id when messageId is absent", () => {

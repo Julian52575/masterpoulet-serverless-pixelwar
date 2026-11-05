@@ -20,7 +20,7 @@ describe("get handler", () => {
     await get(event);
 
     const [{ message, files }] = replies;
-    assert.equal(message.content, "🖼️ La grille actuelle : 2 pixels, de (10, 20) à (12, 25).");
+    assert.equal(message.content, "🖼️ Current canvas: 2 pixels, from (10, 20) to (12, 25).");
     assert.equal(files.length, 1);
     assert.equal(files[0].contentType, "image/png");
     assert.equal(files[0].name, "pixelwar-2026-10-29T12-30-05-123Z.png");
@@ -36,7 +36,7 @@ describe("get handler", () => {
 
   test("tells when the image had to be shrunk", () => {
     const text = canvasImage({ count: 3, region: { x0: 0, y0: 0, x1: 9999, y1: 9999 }, scale: 5 });
-    assert.match(text, /réduite 5 fois/);
+    assert.match(text, /scaled down 5 times/);
   });
 
   test("names the image after the time it was taken, with no character Discord would refuse", () => {

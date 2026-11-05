@@ -163,7 +163,7 @@ describe("createWorker admin authorization", () => {
       assert.equal(result.statusCode, 204);
       assert.deepEqual(calls, []);
       assert.equal(replies.length, 1);
-      assert.match(replies[0].message.content, /réservée aux administrateurs/);
+      assert.match(replies[0].message.content, /for administrators only/);
     });
   }
 

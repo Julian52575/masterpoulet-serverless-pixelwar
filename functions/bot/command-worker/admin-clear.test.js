@@ -64,9 +64,9 @@ describe("admin.clear", () => {
   });
 
   test("tells how many pixels were deleted", () => {
-    assert.equal(cleared(42), "🧹 La grille a été effacée (42 pixels supprimés).");
-    assert.equal(cleared(1), "🧹 La grille a été effacée (1 pixel supprimé).");
-    assert.equal(cleared(0), "🧹 La grille a été effacée (0 pixel supprimé).");
+    assert.equal(cleared(42), "🧹 The canvas was cleared (42 pixels removed).");
+    assert.equal(cleared(1), "🧹 The canvas was cleared (1 pixel removed).");
+    assert.equal(cleared(0), "🧹 The canvas was cleared (0 pixels removed).");
   });
 
   test("does not announce nor reply when the deletion fails, so Pub/Sub retries", async () => {

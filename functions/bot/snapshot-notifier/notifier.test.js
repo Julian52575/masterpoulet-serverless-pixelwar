@@ -79,9 +79,9 @@ describe("snapshot notifier", () => {
 
   test("writes a message with the date, the pixel count, the link and how long it works", () => {
     const text = snapshotMessage({ url: SIGNED, requestedAt: "2026-10-29T12:43:03.572Z", pixelCount: "51", ttlMinutes: 60 });
-    assert.equal(text, `📸 Snapshot du 2026-10-29 12:43:03 UTC, 51 pixels : ${SIGNED}\n(lien valable 1 heure)`);
-    assert.match(snapshotMessage({ url: "u", requestedAt: "x", pixelCount: "x", ttlMinutes: 90 }), /^📸 Snapshot : u\n\(lien valable 90 minutes\)$/);
-    assert.match(snapshotMessage({ url: "u", requestedAt: "x", pixelCount: "1", ttlMinutes: 120 }), /1 pixel : u\n\(lien valable 2 heures\)/);
+    assert.equal(text, `📸 Snapshot from 2026-10-29 12:43:03 UTC, 51 pixels: ${SIGNED}\n(link valid for 1 hour)`);
+    assert.match(snapshotMessage({ url: "u", requestedAt: "x", pixelCount: "x", ttlMinutes: 90 }), /^📸 Snapshot: u\n\(link valid for 90 minutes\)$/);
+    assert.match(snapshotMessage({ url: "u", requestedAt: "x", pixelCount: "1", ttlMinutes: 120 }), /1 pixel: u\n\(link valid for 2 hours\)/);
   });
 
   test("never writes the signed link or the interaction token to the logs", async () => {

@@ -96,8 +96,8 @@ describe("admin.ratelimit", () => {
   });
 
   test("mentions the user and the limit in the reply", () => {
-    assert.equal(limitSet("222", 5), "✅ <@222> peut maintenant dessiner 5 pixels par minute.");
-    assert.equal(limitSet("222", 1), "✅ <@222> peut maintenant dessiner 1 pixel par minute.");
+    assert.equal(limitSet("222", 5), "✅ <@222> can now draw 5 pixels per minute.");
+    assert.equal(limitSet("222", 1), "✅ <@222> can now draw 1 pixel per minute.");
   });
 
   for (const [name, payload] of Object.entries({

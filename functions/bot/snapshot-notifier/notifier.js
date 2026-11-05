@@ -6,7 +6,7 @@ const REJECT = 400;
 const RETRY = 500;
 const SNAPSHOT_PREFIX = "snapshots/";
 
-const plural = (count, word) => `${count} ${word}${count > 1 ? "s" : ""}`;
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 function readableTime(iso) {
   const date = new Date(iso);
@@ -16,9 +16,9 @@ function readableTime(iso) {
 function snapshotMessage({ url, requestedAt, pixelCount, ttlMinutes }) {
   const when = readableTime(requestedAt);
   const count = Number.parseInt(pixelCount, 10);
-  const details = [when && `du ${when}`, Number.isInteger(count) && plural(count, "pixel")].filter(Boolean);
-  const validity = ttlMinutes % 60 === 0 ? plural(ttlMinutes / 60, "heure") : plural(ttlMinutes, "minute");
-  return `📸 Snapshot${details.length ? ` ${details.join(", ")}` : ""} : ${url}\n(lien valable ${validity})`;
+  const details = [when && `from ${when}`, Number.isInteger(count) && plural(count, "pixel")].filter(Boolean);
+  const validity = ttlMinutes % 60 === 0 ? plural(ttlMinutes / 60, "hour") : plural(ttlMinutes, "minute");
+  return `📸 Snapshot${details.length ? ` ${details.join(", ")}` : ""}: ${url}\n(link valid for ${validity})`;
 }
 
 function createNotifier({ files, discord, bucket, ttlMinutes }) {

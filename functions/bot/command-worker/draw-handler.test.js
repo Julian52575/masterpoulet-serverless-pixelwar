@@ -150,16 +150,16 @@ describe("draw handler", () => {
     const { draw, calls } = make({ result: { status: "rate_limited", limit: 20, retryAfterSeconds: 42 } });
     await draw(drawEvent());
     assert.deepEqual(calls.at(-1), { reply: rateLimited(20, 42) });
-    assert.equal(rateLimited(20, 42), "⏳ Tu as atteint ta limite de 20 pixels par minute. Réessaie dans 42 s.");
+    assert.equal(rateLimited(20, 42), "⏳ You reached your limit of 20 pixels per minute. Try again in 42 s.");
   });
 
   test("writes the success message with the remaining quota", () => {
     assert.equal(
       drawn({ x: 10, y: 20, color: "#e50000" }, 19),
-      "🎨 Pixel (10, 20) dessiné en #e50000. Il te reste 19 pixels cette minute."
+      "🎨 Pixel (10, 20) drawn in #e50000. You have 19 pixels left this minute."
     );
-    assert.match(drawn({ x: 0, y: 0, color: "#000000" }, 1), /1 pixel cette minute/);
-    assert.match(drawn({ x: 0, y: 0, color: "#000000" }, 0), /0 pixel cette minute/);
+    assert.match(drawn({ x: 0, y: 0, color: "#000000" }, 1), /1 pixel left this minute/);
+    assert.match(drawn({ x: 0, y: 0, color: "#000000" }, 0), /0 pixels left this minute/);
   });
 
   test("does not reply when Firestore fails, so Pub/Sub retries", async () => {

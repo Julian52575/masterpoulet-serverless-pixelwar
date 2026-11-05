@@ -1,10 +1,10 @@
 const { SIZE, isCoordinate } = require("./grid");
 const { PALETTE, normalizeColor } = require("./palette");
 
-const INVALID_COORDINATES = `❌ x et y doivent être des nombres entiers entre 0 et ${SIZE - 1}.`;
+const INVALID_COORDINATES = `❌ x and y must be whole numbers between 0 and ${SIZE - 1}.`;
 const INVALID_COLOR =
-  "❌ Couleur invalide : utilise un code hexadécimal comme #ff0000, " +
-  `ou une couleur de la palette : ${Object.keys(PALETTE).join(", ")}.`;
+  "❌ Invalid color: use a hex code like #ff0000, " +
+  `or a palette color: ${Object.keys(PALETTE).join(", ")}.`;
 
 function validateDraw(payload) {
   const { x, y, color } = payload ?? {};

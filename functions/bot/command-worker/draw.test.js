@@ -97,7 +97,7 @@ describe("validateDraw", () => {
   });
 
   test("explains the expected range and lists the palette in the error messages", () => {
-    assert.match(INVALID_COORDINATES, /entre 0 et 9999/);
+    assert.match(INVALID_COORDINATES, /between 0 and 9999/);
     for (const name of Object.keys(PALETTE)) assert.match(INVALID_COLOR, new RegExp(name));
   });
 

@@ -215,9 +215,9 @@ describe("handler", () => {
   });
 
   test("keeps the signature valid for non-ASCII bodies", async () => {
-    const res = await handler(signedEvent(draw("rouge 🎨 éàü"), { base64: true }));
+    const res = await handler(signedEvent(draw("crimson 🎨 éàü"), { base64: true }));
     assert.deepEqual(JSON.parse(res.body), { type: 5 });
-    assert.equal(published[0].payload.color, "rouge 🎨 éàü");
+    assert.equal(published[0].payload.color, "crimson 🎨 éàü");
   });
 
   test("rejects a missing signature with 401", async () => {
@@ -337,7 +337,7 @@ describe("handler publishing", () => {
     assert.equal(res.statusCode, 200);
     assert.deepEqual(JSON.parse(res.body), {
       type: 4,
-      data: { content: "Commande inconnue.", flags: 64 }
+      data: { content: "Unknown command.", flags: 64 }
     });
     assert.equal(published.length, 0);
   });

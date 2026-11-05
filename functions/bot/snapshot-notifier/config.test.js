@@ -23,7 +23,7 @@ describe("loadConfig", () => {
     assert.deepEqual(loadConfig({ SNAPSHOT_BUCKET: "gs://b" }).problems, ["SNAPSHOT_BUCKET is not a valid bucket name"]);
   });
 
-  for (const bad of ["0", "-5", "1.5", "une heure", "10081"]) {
+  for (const bad of ["0", "-5", "1.5", "one hour", "10081"]) {
     test(`refuses a link lifetime of ${JSON.stringify(bad)} (Google allows at most 7 days)`, () => {
       assert.deepEqual(loadConfig({ SNAPSHOT_BUCKET: "b-1", SIGNED_URL_TTL_MINUTES: bad }).problems, [
         "SIGNED_URL_TTL_MINUTES must be a whole number between 1 and 10080"

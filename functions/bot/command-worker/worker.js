@@ -5,7 +5,7 @@ const ACK = 204;
 const REJECT = 400;
 const RETRY = 500;
 
-const REFUSED = "⛔ Cette commande est réservée aux administrateurs.";
+const REFUSED = "⛔ This command is for administrators only.";
 
 function createWorker({ handlers, authorizer, discord }) {
   async function refuse(event, fields) {

@@ -73,6 +73,6 @@ describe("snapshot handler", () => {
   });
 
   test("tells the admin that a link is coming", () => {
-    assert.match(SNAPSHOT_PENDING, /lien/);
+    assert.match(SNAPSHOT_PENDING, /link/);
   });
 });

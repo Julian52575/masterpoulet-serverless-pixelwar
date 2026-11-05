@@ -51,7 +51,7 @@ describe("rate limits", () => {
 
   test("falls back to the default when the stored value is not a valid limit", async () => {
     const db = fakeFirestore();
-    db.docs.set("limits/222", { limit: "illimité" });
+    db.docs.set("limits/222", { limit: "unlimited" });
     assert.equal(await createRateLimits({ db }).limitFor("222"), 20);
   });
 

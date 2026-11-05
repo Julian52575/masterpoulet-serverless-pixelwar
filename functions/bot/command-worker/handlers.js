@@ -4,28 +4,28 @@ const { validateDraw } = require("./draw");
 const { snowflakeTime } = require("./snowflake");
 const { renderCanvas } = require("./render");
 
-const PAUSED = "⏸️ Le dessin est en pause : /draw et le site sont bloqués jusqu'à /admin resume.";
-const RESUMED = "▶️ Le dessin a repris.";
+const PAUSED = "⏸️ Drawing is paused: /draw and the website are blocked until /admin resume.";
+const RESUMED = "▶️ Drawing has resumed.";
 const SNOWFLAKE = /^\d{1,20}$/;
 
 const limitSet = (userId, limit) =>
-  `✅ <@${userId}> peut maintenant dessiner ${limit} pixel${limit > 1 ? "s" : ""} par minute.`;
-const INVALID_USER = "❌ Utilisateur invalide.";
-const INVALID_LIMIT = `❌ La limite doit être un nombre entier entre ${MIN_RATE_LIMIT} et ${MAX_RATE_LIMIT}.`;
+  `✅ <@${userId}> can now draw ${limit} pixel${limit === 1 ? "" : "s"} per minute.`;
+const INVALID_USER = "❌ Invalid user.";
+const INVALID_LIMIT = `❌ The limit must be a whole number between ${MIN_RATE_LIMIT} and ${MAX_RATE_LIMIT}.`;
 
-const plural = (count, word) => `${count} ${word}${count > 1 ? "s" : ""}`;
-const DRAW_PAUSED = "⏸️ Le dessin est en pause pour le moment, réessaie plus tard.";
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const DRAW_PAUSED = "⏸️ Drawing is paused for now, try again later.";
 const drawn = ({ x, y, color }, remaining) =>
-  `🎨 Pixel (${x}, ${y}) dessiné en ${color}. Il te reste ${plural(remaining, "pixel")} cette minute.`;
+  `🎨 Pixel (${x}, ${y}) drawn in ${color}. You have ${plural(remaining, "pixel")} left this minute.`;
 const rateLimited = (limit, seconds) =>
-  `⏳ Tu as atteint ta limite de ${plural(limit, "pixel")} par minute. Réessaie dans ${seconds} s.`;
-const EMPTY_CANVAS = "🖼️ La grille est vide pour l'instant.";
+  `⏳ You reached your limit of ${plural(limit, "pixel")} per minute. Try again in ${seconds} s.`;
+const EMPTY_CANVAS = "🖼️ The canvas is empty for now.";
 const canvasImage = ({ count, region, scale }) =>
-  `🖼️ La grille actuelle : ${plural(count, "pixel")}, de (${region.x0}, ${region.y0}) à (${region.x1}, ${region.y1})` +
-  (scale > 1 ? `, image réduite ${scale} fois pour tenir dans Discord.` : ".");
+  `🖼️ Current canvas: ${plural(count, "pixel")}, from (${region.x0}, ${region.y0}) to (${region.x1}, ${region.y1})` +
+  (scale > 1 ? `, image scaled down ${scale} times to fit in Discord.` : ".");
 const imageName = (at) => `pixelwar-${at.toISOString().replace(/[:.]/g, "-")}.png`;
-const SNAPSHOT_PENDING = "📸 Snapshot en cours de création, le lien arrive dans quelques secondes…";
-const cleared = (deleted) => `🧹 La grille a été effacée (${plural(deleted, "pixel")} supprimé${deleted > 1 ? "s" : ""}).`;
+const SNAPSHOT_PENDING = "📸 Creating the snapshot, the link will arrive in a few seconds…";
+const cleared = (deleted) => `🧹 The canvas was cleared (${plural(deleted, "pixel")} removed).`;
 
 function createHandlers({ state, limits, pixels, events, cleaner, canvas, snapshots, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });

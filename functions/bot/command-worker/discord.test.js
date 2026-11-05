@@ -19,7 +19,7 @@ function fakeFetch(status = 204, text = "") {
 describe("editOriginal", () => {
   test("PATCHes the original interaction response through the webhook URL", async () => {
     const { fetch, calls } = fakeFetch();
-    await createDiscordClient({ fetch }).editOriginal(event, { content: "Pixel dessiné" });
+    await createDiscordClient({ fetch }).editOriginal(event, { content: "Pixel drawn" });
 
     assert.equal(calls.length, 1);
     assert.equal(

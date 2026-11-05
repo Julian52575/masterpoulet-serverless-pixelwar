@@ -121,7 +121,7 @@ function createHandler({ publish }) {
         });
         return reply(200, {
           type: 4,
-          data: { content: "Commande inconnue.", flags: EPHEMERAL }
+          data: { content: "Unknown command.", flags: EPHEMERAL }
         }, correlationId);
       }
 

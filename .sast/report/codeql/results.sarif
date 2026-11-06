@@ -3001,7 +3001,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/events.js",
+                      "uri": "backend/src/app.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 0
                     }
@@ -3059,7 +3059,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/env.js",
+                      "uri": "backend/src/events.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 2
                     }
@@ -3088,7 +3088,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/app.js",
+                      "uri": "backend/src/env.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 3
                     }
@@ -3465,9 +3465,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/palette.js",
+                      "uri": "backend/src/env.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 4
+                      "index": 3
                     }
                   }
                 }
@@ -3491,9 +3491,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/env.js",
+                      "uri": "backend/src/palette.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 2
+                      "index": 4
                     }
                   }
                 }
@@ -3545,7 +3545,7 @@
                     "artifactLocation": {
                       "uri": "backend/src/events.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 0
+                      "index": 2
                     }
                   }
                 }
@@ -3675,7 +3675,7 @@
                     "artifactLocation": {
                       "uri": "backend/src/app.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 3
+                      "index": 0
                     }
                   }
                 }
@@ -3829,9 +3829,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/setupTests.ts",
+                      "uri": "frontend/src/App.test.tsx",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 13
+                      "index": 10
                     }
                   }
                 }
@@ -3855,9 +3855,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "frontend/src/App.test.tsx",
+                      "uri": "frontend/src/setupTests.ts",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 10
+                      "index": 13
                     }
                   }
                 }
@@ -3881,7 +3881,7 @@
                 "text": ""
               },
               "level": "none",
-              "timeUtc": "2026-11-06T16:25:44.511Z",
+              "timeUtc": "2026-11-06T16:43:51.071Z",
               "descriptor": {
                 "id": "codeql-action/overlay-disabled",
                 "index": 2
@@ -3903,7 +3903,7 @@
       "artifacts": [
         {
           "location": {
-            "uri": "backend/src/events.js",
+            "uri": "backend/src/app.js",
             "uriBaseId": "%SRCROOT%",
             "index": 0
           }
@@ -3917,14 +3917,14 @@
         },
         {
           "location": {
-            "uri": "backend/src/env.js",
+            "uri": "backend/src/events.js",
             "uriBaseId": "%SRCROOT%",
             "index": 2
           }
         },
         {
           "location": {
-            "uri": "backend/src/app.js",
+            "uri": "backend/src/env.js",
             "uriBaseId": "%SRCROOT%",
             "index": 3
           }
@@ -4055,7 +4055,7 @@
         "codeqlConfigSummary": {
           "disableDefaultQueries": false
         },
-        "jobRunUuid": "e64f0d71-fa26-4d8e-81f3-c2a4033208df"
+        "jobRunUuid": "fbfa7931-e3a2-4ad8-a1fa-93fd2c48670c"
       }
     }
   ]

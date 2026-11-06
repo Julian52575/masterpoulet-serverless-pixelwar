@@ -4,7 +4,7 @@
 
 Cette stack prépare le réseau utilisé par GKE. Elle gère **quatre ressources**
 par environnement, pas de VM ni de cluster. Le même code utilise dev.tfvars ou
-prd.tfvars ; le provider cible explicitement var.project_id.
+prod.tfvars ; le provider cible explicitement var.project_id.
 
 ## Ressources et responsabilités
 
@@ -92,10 +92,10 @@ générale ; Cloud NAT répond à ce second besoin.
 | Cible | Couple de fichiers | Bucket / préfixe |
 | --- | --- | --- |
 | DEV | backends/dev.hcl + dev.tfvars | masterpoulet_bucket / foundation/dev |
-| PROD | backends/prd.hcl + prd.tfvars | masterpoulet_prod_bucket / foundation/prd |
+| PROD | backends/prod.hcl + prod.tfvars | masterpoulet_prod_bucket / foundation/prod |
 
 Le backend générique est dans backend.tf. Les objets sont
-foundation/dev/default.tfstate et foundation/prd/default.tfstate dans leurs
+foundation/dev/default.tfstate et foundation/prod/default.tfstate dans leurs
 buckets respectifs, avec workspace default. Les buckets, conservés indépendamment
 du réseau, ne doivent pas être supprimés lors du nettoyage d'une démonstration.
 Voir [la sélection commune des backends](../README.md#sélectionner-la-stack-et-le-backend).
@@ -115,41 +115,35 @@ du subnet et renseignés explicitement dans les tfvars GKE.
 Après les [installations et connexions du guide commun](../README.md#préparer-windows-et-les-identités),
 exécuter depuis la racine du dépôt, pour DEV :
 
-```powershell
-Set-Location infra/foundation
+```bash
+cd infra/foundation
 terraform init -reconfigure -backend-config="backends/dev.hcl" -input=false
-if ($LASTEXITCODE -ne 0) { throw 'Échec backend foundation DEV.' }
-$foundationWorkspace = terraform workspace show
-if ($LASTEXITCODE -ne 0 -or $foundationWorkspace -ne 'default') { throw 'Workspace default requis.' }
+test "$(terraform workspace show)" = default
 terraform fmt -check -recursive
-if ($LASTEXITCODE -ne 0) { throw 'Format incorrect.' }
 terraform validate
-if ($LASTEXITCODE -ne 0) { throw 'Configuration invalide.' }
 terraform plan -var-file="dev.tfvars" -input=false -lock-timeout=60s -out="dev.tfplan"
-if ($LASTEXITCODE -ne 0) { throw 'Échec du plan.' }
 terraform show dev.tfplan
 terraform state list
 terraform output
 ```
 
-Pour PROD, reprendre la même procédure avec **backends/prd.hcl et prd.tfvars** ;
+Pour PROD, reprendre la même procédure avec **backends/prod.hcl et prod.tfvars** ;
 ne pas lancer un plan PROD avec le backend DEV. Les étapes d'application avec
 confirmation sont [dans le guide principal](../README.md#planifier-et-déployer).
 Un apply peut supprimer/remplacer selon le plan : ne jamais le déduire du seul nom
 « foundation ». Examiner les dépendances GKE et les autres utilisateurs du VPC.
 
-### Le script existant check.ps1
+### Le script check.py
 
-check.ps1 est un assistant **DEV uniquement**. Il contrôle le format, vérifie le
+check.py est un assistant **DEV uniquement**. Il contrôle le format, vérifie le
 bucket, initialise, valide et prépare dev.tfplan. Il ne lance pas d'apply.
-`./check.ps1 -LocalOnly` initialise les providers avec -backend=false et valide,
+`python3 check.py --local-only` initialise les providers avec -backend=false et valide,
 sans sélectionner un backend distant ni faire de plan. Cela peut nécessiter le
 registre des providers et ne garantit pas un plan GCP réussi.
 
-Le script distant n'utilise pas -reconfigure et appelle gcloud plutôt que
-explicitement gcloud.cmd. En cas de changement de backend ou de politique
-PowerShell restrictive, utiliser les commandes explicites ci-dessus. Ne pas
-modifier le script ni désactiver une politique du PC pour suivre ce guide.
+`python3 check.py --dry-run` affiche les commandes sans les exécuter (ni terraform ni
+gcloud), pour vérifier l'enchaînement. Le script distant n'utilise pas -reconfigure :
+en cas de changement de backend, utiliser les commandes explicites ci-dessus.
 
 ### Contrôler dans GCP
 
@@ -177,7 +171,7 @@ gcloud.cmd compute routes list --project=masterpoulet-dev --filter='network:mast
 Au **23 octobre 2026**, les quatre ressources sont présentes dans chacun des
 states foundation. Les inventaires ont confirmé les subnets et les Router/NAT
 DEV et PROD. Les secondaires sont présentes en DEV mais **absentes du subnet
-PROD**, bien qu'elles figurent dans prd.tfvars : une future application du plan
+PROD**, bien qu'elles figurent dans prod.tfvars : une future application du plan
 foundation PROD sera nécessaire avant la stack GKE PROD. Aucun plan PROD récent
 n'a été exécuté pour cette documentation.
 
@@ -244,12 +238,8 @@ réinitialiser explicitement le bon backend et le workspace default. Les valeurs
 publiques des tfvars, le backend générique et la séparation des buckets sont
 conservés ; aucun credential n'est ajouté aux fichiers partagés.
 
-La révision C02 fusionnée a2b4732 utilise toujours prd.tfvars et backends/prd.hcl.
-Aucun renommage prod.tfvars/prod.hcl n'est présent dans cette révision. Le merge
-conserve donc ces chemins cohérents et les préfixes foundation/dev et
-foundation/prd, sans migration d'état. Si les fichiers sont renommés plus tard,
-mettre à jour les commandes et références sans renommer le projet GCP, les
-ressources ou le préfixe du state existant.
+Les fichiers PROD sont prod.tfvars et backends/prod.hcl, avec le préfixe
+foundation/prod.
 
 Contrôle DEV au moment de cette fusion : le backend foundation/dev contient
 le VPC et le subnet ; l'inventaire GCP des Cloud Router est vide. Le plan prévoit

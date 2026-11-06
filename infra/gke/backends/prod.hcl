@@ -1,2 +1,2 @@
 bucket = "masterpoulet_prod_bucket"
-prefix = "gke/prd"
+prefix = "gke/prod"

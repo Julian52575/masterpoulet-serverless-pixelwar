@@ -18,7 +18,7 @@ resource "helm_release" "arc_runner_scale_set" {
   # Only reference the manually managed Secret; never read its data into Terraform.
   values = [yamlencode({
     githubConfigUrl    = "https://github.com/Julian52575/masterpoulet-serverless-pixelwar"
-    githubConfigSecret = "github-pat-arc"
+    githubConfigSecret = "arc-rw"
     runnerScaleSetName = "masterpoulet-gke-runners"
     minRunners         = 0
     maxRunners         = 2

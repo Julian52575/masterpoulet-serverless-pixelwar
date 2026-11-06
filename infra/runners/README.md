@@ -22,7 +22,7 @@ initial ci-dessous ; la rotation du PAT reste extérieure à Terraform.
 - Backend GCS DEV : `masterpoulet_bucket`, préfixe `runners/dev`, workspace `default`.
 - Contrôleur existant `arc` : chart `0.15.0`, Deployment disponible `1/1`,
   service account `arc-controller` dans `arc-systems`.
-- Namespace `arc-runners` et Secret `github-pat-arc` présents ; seul le nom du
+- Namespace `arc-runners` et Secret `arc-rw` présents ; seul le nom du
   Secret a été consulté, jamais sa valeur.
 - Plan enregistré et appliqué : **1 création, 0 modification, 0 suppression**,
   uniquement `helm_release.arc_runner_scale_set`. Plan après application : aucun changement.
@@ -51,7 +51,7 @@ Les namespaces et le Secret existants restent gérés hors de cette stack.
 | Namespace | `arc-runners` |
 | Chart officiel | `gha-runner-scale-set`, version `0.15.0` |
 | Dépôt GitHub | `https://github.com/Julian52575/masterpoulet-serverless-pixelwar` |
-| Secret existant / clé attendue | `github-pat-arc` / `github_token` |
+| Secret existant / clé attendue | `arc-rw` / `github_token` |
 | Runners au repos / maximum total | `0` / `2` |
 | Image officielle du runner | `ghcr.io/actions/actions-runner:2.338.2` |
 | Placement contrôleur, listener et runners | pool `github-runners` |
@@ -115,7 +115,7 @@ Dans un terminal PowerShell, imposer le contexte pour chaque commande :
 $arcContext = 'gke_masterpoulet-dev_europe-west1-b_masterpoulet-dev-gke'
 kubectl --context=$arcContext get nodes -L cloud.google.com/gke-nodepool
 kubectl --context=$arcContext get namespaces arc-systems arc-runners
-kubectl --context=$arcContext -n arc-runners get secret github-pat-arc -o name
+kubectl --context=$arcContext -n arc-runners get secret arc-rw -o name
 kubectl --context=$arcContext -n arc-systems get deployments,pods
 kubectl --context=$arcContext -n arc-runners get pods
 kubectl --context=$arcContext get autoscalingrunnersets,autoscalinglisteners,ephemeralrunnersets,ephemeralrunners -A
@@ -298,15 +298,14 @@ par `latest` ou une plage implicite.
 | Cible | Projet / cluster / zone | Backend | State, workspace `default` |
 | --- | --- | --- | --- |
 | DEV | `masterpoulet-dev` / `masterpoulet-dev-gke` / `europe-west1-b` | `masterpoulet_bucket`, préfixe `runners/dev` | `runners/dev/default.tfstate` |
-| PROD préparé | `masterpoulet-prod` / `masterpoulet-prod-gke` / `europe-west3-b` | `masterpoulet_prod_bucket`, préfixe `runners/prd` | `runners/prd/default.tfstate` |
+| PROD préparé | `masterpoulet-prod` / `masterpoulet-prod-gke` / `europe-west3-b` | `masterpoulet_prod_bucket`, préfixe `runners/prod` | `runners/prod/default.tfstate` |
 
-Ces préfixes sont distincts de **foundation/dev**, **foundation/prd**,
-**gke/dev** et **gke/prd**. Aucun bucket nouveau, migration de state ou accès
+Ces préfixes sont distincts de **foundation/dev**, **foundation/prod**,
+**gke/dev** et **gke/prod**. Aucun bucket nouveau, migration de state ou accès
 au backend PROD n'est nécessaire pour cette préparation DEV. Le state initial
 runners DEV est vide. Le backend PROD n'a pas été initialisé ni planifié.
 
-Les fichiers PROD sont nommés `prod.tfvars` et `backends/prod.hcl` ; le préfixe
-historique `runners/prd` et le bucket restent inchangés, sans migration d'état.
+Les fichiers PROD sont nommés `prod.tfvars` et `backends/prod.hcl`.
 
 ## Connexion GKE sans secret dans Terraform
 

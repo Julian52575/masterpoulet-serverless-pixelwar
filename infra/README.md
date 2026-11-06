@@ -75,16 +75,16 @@ infra/
 │   ├── README.md, AUDIT.md
 │   ├── backend.tf, providers.tf, variables.tf
 │   ├── main.tf, router.tf, nat.tf, outputs.tf
-│   ├── dev.tfvars, prd.tfvars
-│   ├── backends/dev.hcl, backends/prd.hcl
-│   ├── check.ps1
+│   ├── dev.tfvars, prod.tfvars
+│   ├── backends/dev.hcl, backends/prod.hcl
+│   ├── check.py
 │   └── .gitignore, .terraform.lock.hcl
 └── gke/
     ├── README.md
     ├── backend.tf, providers.tf, variables.tf
     ├── network.tf, iam.tf, cluster.tf, node-pool.tf, outputs.tf
-    ├── dev.tfvars, prd.tfvars
-    ├── backends/dev.hcl, backends/prd.hcl
+    ├── dev.tfvars, prod.tfvars
+    ├── backends/dev.hcl, backends/prod.hcl
     └── .gitignore, .terraform.lock.hcl
 ```
 
@@ -120,16 +120,16 @@ de préparation ; elles ne constituent pas une garantie permanente de santé.
 ### Backends et states
 
 Tous utilisent le workspace **default**. Les chemins backend sont relatifs à
-chaque stack, et les noms PROD s'écrivent **prd**, pas prod.
+chaque stack. Toutes les stacks utilisent `prod` pour PROD (fichiers et préfixes GCS).
 
 | Stack / cible | Fichier backend | Bucket | Préfixe | Objet state |
 | --- | --- | --- | --- | --- |
 | foundation DEV | backends/dev.hcl | masterpoulet_bucket | foundation/dev | foundation/dev/default.tfstate |
-| foundation PROD | backends/prd.hcl | masterpoulet_prod_bucket | foundation/prd | foundation/prd/default.tfstate |
+| foundation PROD | backends/prod.hcl | masterpoulet_prod_bucket | foundation/prod | foundation/prod/default.tfstate |
 | GKE DEV | backends/dev.hcl | masterpoulet_bucket | gke/dev | gke/dev/default.tfstate |
-| GKE PROD | backends/prd.hcl | masterpoulet_prod_bucket | gke/prd | gke/prd/default.tfstate |
+| GKE PROD | backends/prod.hcl | masterpoulet_prod_bucket | gke/prod | gke/prod/default.tfstate |
 
-Les trois premiers objets ont été trouvés. Aucun objet trouvé à `gke/prd` ne
+Les trois premiers objets ont été trouvés. Aucun objet trouvé à `gke/prod` ne
 prouve pas l'absence de ressources hors Terraform. Les buckets existent, ne sont
 gérés par aucune des deux stacks et restent après destruction. Leur région
 `europe-west1` est indépendante des subnets. Versioning et protections avaient
@@ -148,7 +148,7 @@ Le **provider** traduit le code en appels API. Les stacks utilisent
 Terraform CLI doit respecter `>= 1.6.0, < 2.0.0`.
 
 Les **variables** décrivent les paramètres dans `variables.tf`. `dev.tfvars`
-et `prd.tfvars` apportent les valeurs ; sous ces noms, ils nécessitent
+et `prod.tfvars` apportent les valeurs ; ils nécessitent
 `-var-file` et ne sont pas chargés automatiquement. Les providers définissent
 `project = var.project_id` : le projet actif gcloud ne remplace pas cette valeur.
 
@@ -271,14 +271,14 @@ Ne pas contourner une erreur de permission en ajoutant des rôles généraux.
 
 ## Sélectionner la stack et le backend
 
-Le couple est **backends/dev.hcl + dev.tfvars** pour DEV, et
-**backends/prd.hcl + prd.tfvars** pour PROD. Depuis un dossier du dépôt, choisir
-la cible dans les deux premières lignes. Ce bloc initialise **GKE DEV** :
+Le couple est **backends/dev.hcl + dev.tfvars** pour DEV. Pour PROD, foundation
+et GKE utilisent **backends/prod.hcl + prod.tfvars**. Depuis un dossier du dépôt, choisir la cible
+dans les deux premières lignes. Ce bloc initialise **GKE DEV** :
 
 ```powershell
 $infraStack = 'gke'       # foundation ou gke
-$infraEnv = 'dev'         # dev ou prd
-if ($infraStack -notin @('foundation', 'gke') -or $infraEnv -notin @('dev', 'prd')) { throw 'Cible invalide.' }
+$infraEnv = 'dev'         # dev ou prod
+if ($infraStack -notin @('foundation', 'gke') -or $infraEnv -notin @('dev', 'prod')) { throw 'Cible invalide.' }
 $infraRepoRoot = git rev-parse --show-toplevel
 if ($LASTEXITCODE -ne 0) { throw 'Ouvrir un dossier du dépôt Git.' }
 Set-Location (Join-Path $infraRepoRoot "infra/$infraStack")
@@ -300,17 +300,18 @@ pas le state distant des ressources. N'afficher que ses champs utiles, jamais
 d'éventuels credentials. `-reconfigure` choisit un backend sans migrer les états.
 Ne jamais accepter une migration DEV→PROD ou foundation→GKE.
 
-Pour passer à PROD dans la même stack, revoir les valeurs puis utiliser le
-couple complet, après accord de l'équipe :
+Pour passer à PROD dans la même stack, revoir les valeurs et réexécuter le bloc
+de sélection avec `$infraEnv = 'prod'`, après accord de l'équipe. Le couple
+complet dépend de la stack :
 
 ```powershell
-terraform init -reconfigure -backend-config="backends/prd.hcl" -input=false
+terraform init -reconfigure -backend-config="backends/$infraEnv.hcl" -input=false
 if ($LASTEXITCODE -ne 0) { throw 'Échec init PROD.' }
-terraform plan -var-file="prd.tfvars" -input=false -lock-timeout=60s
+terraform plan -var-file="$infraEnv.tfvars" -input=false -lock-timeout=60s
 ```
 
 Avant les procédures génériques suivantes, réexécuter le bloc de sélection avec
-$infraEnv='prd' si PROD est voulu : ne pas laisser les variables PowerShell sur DEV.
+$infraEnv='prod' si PROD est voulu : ne pas laisser les variables PowerShell sur DEV.
 Le retour DEV exige dev.hcl puis dev.tfvars. Un nouveau terminal ne réinitialise
 pas le backend mémorisé dans `.terraform/`. Un mauvais couple peut viser un
 mauvais projet ou enregistrer des ressources dans le mauvais state : **arrêter au

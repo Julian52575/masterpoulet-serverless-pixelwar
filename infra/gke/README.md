@@ -135,12 +135,10 @@ reste ensuite. Il n'y a pas de second pool permanent.
 | Cible | Couple | Bucket / préfixe |
 | --- | --- | --- |
 | DEV | backends/dev.hcl + dev.tfvars | masterpoulet_bucket / gke/dev |
-| PROD | backends/prod.hcl + prod.tfvars | masterpoulet_prod_bucket / gke/prd |
+| PROD | backends/prod.hcl + prod.tfvars | masterpoulet_prod_bucket / gke/prod |
 
-Workspace default, objets gke/dev/default.tfstate et gke/prd/default.tfstate.
-Les fichiers PROD s'appellent désormais prod.tfvars et backends/prod.hcl ; le
-préfixe historique gke/prd reste volontairement inchangé. Ce renommage de fichiers
-ne migre pas le state et ne modifie aucune ressource GCP.
+Workspace default, objets gke/dev/default.tfstate et gke/prod/default.tfstate.
+Les fichiers PROD s'appellent prod.tfvars et backends/prod.hcl.
 Le réseau garde son state foundation indépendant. GKE ne possède que quatre
 ressources managées ; les deux lectures réseau sont des data sources.
 
@@ -152,7 +150,7 @@ Les quatre ressources sont présentes dans le state DEV. L'audit n'a pas vérifi
 la santé via kubectl, les Pods applicatifs ou une montée/descente de charge.
 
 En PROD, l'API GKE est désactivée : l'inventaire a échoué, ce qui **ne prouve pas**
-l'absence d'un cluster. Aucun objet trouvé sous gke/prd ; la configuration et la
+l'absence d'un cluster. Aucun objet trouvé sous gke/prod ; la configuration et la
 zone europe-west3-b restent un exemple à revoir. Prévoir secondaires, API, agents
 de service, quotas et permissions avant tout déploiement PROD.
 

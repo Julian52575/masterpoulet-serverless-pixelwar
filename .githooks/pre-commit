@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Git runs the hook only under this exact filename; see commit-msg.
+dir="$(dirname "$0")"
+"$dir/check-commit-size" "$@"

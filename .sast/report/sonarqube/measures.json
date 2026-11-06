@@ -11,10 +11,6 @@
         "bestValue": false
       },
       {
-        "metric": "alert_status",
-        "value": "OK"
-      },
-      {
         "metric": "reliability_rating",
         "value": "1.0",
         "bestValue": true
@@ -23,6 +19,10 @@
         "metric": "bugs",
         "value": "0",
         "bestValue": true
+      },
+      {
+        "metric": "alert_status",
+        "value": "OK"
       },
       {
         "metric": "duplicated_lines_density",

@@ -37,6 +37,9 @@
             curl # the shellHook pings the podman API socket with it
             # infra tooling
             git
+            check-jsonschema # validates workflows: --builtin-schema vendor.github-workflows
+            actionlint
+            shellcheck # actionlint uses it to lint `run:` scripts
           ] ++ (import ./nix/tools.nix { inherit pkgs; }).all
             ++ pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
               fuse-overlayfs # rootless overlay storage driver

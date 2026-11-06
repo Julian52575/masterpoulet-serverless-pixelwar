@@ -37,6 +37,10 @@ describe("pixels", () => {
     expect((await request(setup().app).get("/health")).body).toEqual({ status: "ok" });
   });
 
+  it("says hello", async () => {
+    expect((await request(setup().app).get("/hello")).body).toEqual({ message: "Hello, world!" });
+  });
+
   it("queues a draw instead of writing", async () => {
     const { app, publish } = setup();
     const res = await request(app).post("/pixels").send(px);

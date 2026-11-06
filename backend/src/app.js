@@ -46,6 +46,8 @@ function createApp({ db, store, publish, admins = [], unlimited = false, now = D
 
   app.get("/health", (req, res) => res.json({ status: "ok" }));
 
+  app.get("/hello", (req, res) => res.json({ message: "Hello, world!" }));
+
   app.get("/config", async (req, res) =>
     res.json({ size: SIZE, tile: TILE, maxBrush, paused: await store.isPaused(), palette: PALETTE }),
   );

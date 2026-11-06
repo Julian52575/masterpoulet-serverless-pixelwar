@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Reject a push that contains unsigned commits. Unlike commit-msg, this sees
+# the finished commits, so it catches `-c commit.gpgsign=false` and
+# `--no-gpg-sign`. Looks for the gpgsig header, so no local keys are needed.
+# Local feedback only -- `--no-verify` skips it.
+set -euo pipefail
+
+zero=0000000000000000000000000000000000000000
+bad=()
+while read -r _ local_sha _ remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue # branch deletion
+  if [ "$remote_sha" = "$zero" ]; then
+    range="$local_sha --not --remotes"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+  # shellcheck disable=SC2086
+  while read -r sha; do
+    # CI bot commits (🤖 in the subject) are unsigned by design
+    [[ "$(git log -1 --format=%s "$sha")" == *🤖* ]] && continue
+    git cat-file commit "$sha" | sed '/^$/q' | grep -q '^gpgsig' || bad+=("$sha")
+  done < <(git rev-list --no-merges $range)
+done
+
+[ "${#bad[@]}" -eq 0 ] && exit 0
+
+{
+  echo "✗ push rejected: ${#bad[@]} unsigned commit(s)"
+  for sha in "${bad[@]}"; do git log -1 --format='    %h %s' "$sha"; done
+  echo "  sign the last one:   git commit --amend -sS --no-edit"
+  echo "  sign a range:        git rebase --exec 'git commit --amend --no-edit -sS' <base>"
+} >&2
+exit 1

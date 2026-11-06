@@ -3001,7 +3001,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/app.js",
+                      "uri": "backend/src/events.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 0
                     }
@@ -3030,7 +3030,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/env.js",
+                      "uri": "backend/src/grid.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 1
                     }
@@ -3059,7 +3059,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/events.js",
+                      "uri": "backend/src/env.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 2
                     }
@@ -3088,7 +3088,7 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/grid.js",
+                      "uri": "backend/src/app.js",
                       "uriBaseId": "%SRCROOT%",
                       "index": 3
                     }
@@ -3465,9 +3465,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/env.js",
+                      "uri": "backend/src/palette.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 1
+                      "index": 4
                     }
                   }
                 }
@@ -3491,9 +3491,9 @@
                 {
                   "physicalLocation": {
                     "artifactLocation": {
-                      "uri": "backend/src/palette.js",
+                      "uri": "backend/src/env.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 4
+                      "index": 2
                     }
                   }
                 }
@@ -3545,7 +3545,7 @@
                     "artifactLocation": {
                       "uri": "backend/src/events.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 2
+                      "index": 0
                     }
                   }
                 }
@@ -3597,7 +3597,7 @@
                     "artifactLocation": {
                       "uri": "backend/src/grid.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 3
+                      "index": 1
                     }
                   }
                 }
@@ -3675,7 +3675,7 @@
                     "artifactLocation": {
                       "uri": "backend/src/app.js",
                       "uriBaseId": "%SRCROOT%",
-                      "index": 0
+                      "index": 3
                     }
                   }
                 }
@@ -3881,7 +3881,7 @@
                 "text": ""
               },
               "level": "none",
-              "timeUtc": "2026-11-06T12:14:59.361Z",
+              "timeUtc": "2026-11-06T16:25:44.511Z",
               "descriptor": {
                 "id": "codeql-action/overlay-disabled",
                 "index": 2
@@ -3903,28 +3903,28 @@
       "artifacts": [
         {
           "location": {
-            "uri": "backend/src/app.js",
+            "uri": "backend/src/events.js",
             "uriBaseId": "%SRCROOT%",
             "index": 0
           }
         },
         {
           "location": {
-            "uri": "backend/src/env.js",
+            "uri": "backend/src/grid.js",
             "uriBaseId": "%SRCROOT%",
             "index": 1
           }
         },
         {
           "location": {
-            "uri": "backend/src/events.js",
+            "uri": "backend/src/env.js",
             "uriBaseId": "%SRCROOT%",
             "index": 2
           }
         },
         {
           "location": {
-            "uri": "backend/src/grid.js",
+            "uri": "backend/src/app.js",
             "uriBaseId": "%SRCROOT%",
             "index": 3
           }
@@ -4055,7 +4055,7 @@
         "codeqlConfigSummary": {
           "disableDefaultQueries": false
         },
-        "jobRunUuid": "e034d0e0-2c48-436a-a326-230170dd4c82"
+        "jobRunUuid": "e64f0d71-fa26-4d8e-81f3-c2a4033208df"
       }
     }
   ]

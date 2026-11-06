@@ -2,7 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "include-v-in-tag": false,
   "include-component-in-tag": false,
+  "pull-request-title-pattern": "chore${scope}: release${component} ${version} 🤖",
   "packages": {
-    ".": { "release-type": "node", "package-name": "serverless-pixelwar" }
+    ".": {
+      "release-type": "node",
+      "package-name": "serverless-pixelwar"
+    }
   }
 }

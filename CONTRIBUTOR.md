@@ -32,7 +32,7 @@ The [`api-scripts/`](api-scripts/README.md) folder holds helper scripts that exe
 - **Link an issue** in the PR description.
 - **Comments:** keep them short and explain why, not what.
 - **Secrets** never go in git. `.env` is ignored; put new variables in `.env.example` with a safe placeholder.
-- **Branches:** commit your work on branches and merge them to `main` using a **Pull Request**
+- **Branches:** commit your work on branches and merge them to `main` using a **Pull Request**. Feature branches name should be prefixed with `feat/`. 
 - **Release:** Releases are made from `main` by closing the `release-please` Pull Request.
 
 ## Commit hooks
@@ -51,6 +51,10 @@ git config --global commit.gpgsign true
 ```
 
 Then add the same key on GitHub (Settings → SSH and GPG keys) as a **Signing Key**. `--no-verify` skips the hooks locally.
+
+## Dev tools
+
+Providing dev tools for local testing is encouraged, like `api-scripts/`, use python instead of a os-specific scripting language.
 
 ## CI
 

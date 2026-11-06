@@ -8,7 +8,7 @@ set -euo pipefail
 
 header="$(grep -vE '^[[:space:]]*(#|$)' "$1" | head -n1 || true)"
 case "$header" in
-  "Merge "* | "Revert "* | fixup!* | squash!* | "") exit 0 ;;
+  "Merge "* | "Revert "* | fixup!* | squash!* | *🤖* | "") exit 0 ;;
 esac
 
 if [ "$(git config --get commit.gpgsign || true)" != "true" ] ||

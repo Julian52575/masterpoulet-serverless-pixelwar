@@ -1,0 +1,17 @@
+{
+  "name": "snapshot-notifier",
+  "version": "1.0.0",
+  "description": "Serverless notifier sending signed snapshot links to Discord for Pixelwar C07",
+  "private": true,
+  "main": "notifier.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node local.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^8.4.0"
+  }
+}

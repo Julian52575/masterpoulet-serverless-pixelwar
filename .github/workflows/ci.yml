@@ -568,6 +568,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # Single stable check for the branch ruleset to require.
   # Add a job to `needs` here to make it mandatory to the branch ruleset.
+  # dependencies-audit is deliberately absent: npm advisories are out of our hands.
   # ---------------------------------------------------------------------------
   ci-required:
     if: always()
@@ -580,7 +581,6 @@ jobs:
       - workflow-lint
       - zizmor
       - terraform
-      - dependencies-audit
       - gitnexus
       - stack
     runs-on: ubuntu-latest

@@ -1,4 +1,5 @@
 const { parsePushMessage, InvalidMessageError } = require("./envelope");
+const { InvalidCommandError } = require("./draw");
 const { log } = require("./logger");
 
 const ACK = 204;
@@ -39,6 +40,7 @@ function createWorker({ handlers, authorizer, discord }) {
       command: event.type,
       user_id: event.user_id,
       interaction_id: event.interaction_id,
+      request_id: event.request_id,
       message_id: messageId,
       delivery_attempt: deliveryAttempt
     };
@@ -58,6 +60,10 @@ function createWorker({ handlers, authorizer, discord }) {
     try {
       await handlers[event.type](event);
     } catch (error) {
+      if (error instanceof InvalidCommandError) {
+        log.warn("invalid command", { ...fields, error: error.message });
+        return { statusCode: REJECT };
+      }
       log.error("command failed", { ...fields, error: error.message, duration_ms: Date.now() - started });
       return { statusCode: RETRY };
     }

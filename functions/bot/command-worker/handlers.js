@@ -1,8 +1,9 @@
 const { createReplier } = require("./reply");
 const { isValidLimit, MIN_RATE_LIMIT, MAX_RATE_LIMIT } = require("./limits");
-const { validateDraw } = require("./draw");
+const { validateDraw, readWebDraw } = require("./draw");
 const { snowflakeTime } = require("./snowflake");
 const { renderCanvas } = require("./render");
+const { log } = require("./logger");
 
 const PAUSED = "⏸️ Drawing is paused: /draw and the website are blocked until /admin resume.";
 const RESUMED = "▶️ Drawing has resumed.";
@@ -89,12 +90,39 @@ function createHandlers({ state, limits, pixels, events, cleaner, canvas, snapsh
       await reply(event, drawn(pixel, result.remaining));
     },
 
+    "web.draw": async (event) => {
+      const request = readWebDraw(event);
+      const limit = await limits.limitFor(request.author);
+      const result = await pixels.drawArea({ ...request, limit });
+
+      for (const cells of result.chunks) {
+        await events.pixelsProcessed({
+          cells,
+          color: request.color,
+          author: request.author,
+          authorName: request.authorName,
+          updatedAt: request.drawnAt,
+          correlationId: event.correlation_id
+        });
+      }
+
+      log.info("web draw applied", {
+        correlation_id: event.correlation_id,
+        user_id: request.author,
+        status: result.status,
+        requested: result.requested,
+        granted: result.granted
+      });
+    },
+
     "admin.pause": async (event) => {
       await state.setPaused(true, event.user_id);
+      await events.pauseChanged({ paused: true, by: event.user_id, at: new Date(now()), correlationId: event.correlation_id });
       await reply(event, PAUSED);
     },
     "admin.resume": async (event) => {
       await state.setPaused(false, event.user_id);
+      await events.pauseChanged({ paused: false, by: event.user_id, at: new Date(now()), correlationId: event.correlation_id });
       await reply(event, RESUMED);
     },
     "admin.ratelimit": async (event) => {

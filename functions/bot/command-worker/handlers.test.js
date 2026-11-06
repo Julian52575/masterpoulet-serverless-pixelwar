@@ -10,6 +10,10 @@ const {
 } = require("./handlers");
 const { DiscordApiError } = require("./discord");
 
+const NOW = Date.UTC(2026, 10, 6, 15, 0, 0);
+const paused = { pauseChanged: { paused: true, by: "999", at: "2026-11-06T15:00:00.000Z" } };
+const resumed = { pauseChanged: { paused: false, by: "999", at: "2026-11-06T15:00:00.000Z" } };
+
 function make({ stateError, limitsError, discordError } = {}) {
   const calls = [];
   const state = {
@@ -24,13 +28,16 @@ function make({ stateError, limitsError, discordError } = {}) {
       calls.push({ setLimit: { user, limit, by } });
     }
   };
+  const events = {
+    pauseChanged: async ({ paused, by, at }) => calls.push({ pauseChanged: { paused, by, at: at.toISOString() } })
+  };
   const discord = {
     editOriginal: async (event, message) => {
       if (discordError) throw discordError;
       calls.push({ reply: message.content });
     }
   };
-  return { handlers: createHandlers({ state, limits, discord }), calls };
+  return { handlers: createHandlers({ state, limits, events, discord, now: () => NOW }), calls };
 }
 
 const event = (type, payload = {}) => ({
@@ -48,16 +55,16 @@ function silenced(fn) {
 }
 
 describe("admin.pause / admin.resume", () => {
-  test("/admin pause stores paused=true with the admin id, then replies", async () => {
+  test("/admin pause stores paused=true, announces it, then replies", async () => {
     const { handlers, calls } = make();
     await handlers["admin.pause"](event("admin.pause"));
-    assert.deepEqual(calls, [{ setPaused: true, by: "999" }, { reply: PAUSED }]);
+    assert.deepEqual(calls, [{ setPaused: true, by: "999" }, paused, { reply: PAUSED }]);
   });
 
-  test("/admin resume stores paused=false with the admin id, then replies", async () => {
+  test("/admin resume stores paused=false, announces it, then replies", async () => {
     const { handlers, calls } = make();
     await handlers["admin.resume"](event("admin.resume"));
-    assert.deepEqual(calls, [{ setPaused: false, by: "999" }, { reply: RESUMED }]);
+    assert.deepEqual(calls, [{ setPaused: false, by: "999" }, resumed, { reply: RESUMED }]);
   });
 
   test("does not reply when Firestore fails, and lets the worker retry", async () => {
@@ -69,13 +76,13 @@ describe("admin.pause / admin.resume", () => {
   test("lets the worker retry when Discord is temporarily unavailable", async () => {
     const { handlers, calls } = make({ discordError: new DiscordApiError(503, "") });
     await assert.rejects(handlers["admin.pause"](event("admin.pause")), DiscordApiError);
-    assert.deepEqual(calls, [{ setPaused: true, by: "999" }]);
+    assert.deepEqual(calls, [{ setPaused: true, by: "999" }, paused]);
   });
 
   test("keeps the pause when the interaction token has expired", async () => {
     const { handlers, calls } = make({ discordError: new DiscordApiError(404, "Unknown Webhook") });
     await silenced(() => handlers["admin.pause"](event("admin.pause")));
-    assert.deepEqual(calls, [{ setPaused: true, by: "999" }]);
+    assert.deepEqual(calls, [{ setPaused: true, by: "999" }, paused]);
   });
 
   test("tells the user how to undo the pause", () => {

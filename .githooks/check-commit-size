@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Reject commits whose staged content exceeds MAX_COMMIT_MB (default 20).
+# Catches vendored binaries (e.g. .terraform providers) before they enter
+# history, where removing them later takes a rewrite. Local feedback only --
+# `--no-verify` skips it.
+set -euo pipefail
+
+max_mb="${MAX_COMMIT_MB:-20}"
+max=$((max_mb * 1024 * 1024))
+
+total=0
+sizes=""
+while IFS= read -r -d '' path; do
+  size="$(git cat-file -s ":$path" 2>/dev/null || echo 0)"
+  total=$((total + size))
+  sizes+="$size $path"$'\n'
+done < <(git diff --cached --name-only -z --no-renames --diff-filter=ACM)
+
+[ "$total" -le "$max" ] && exit 0
+
+{
+  echo "✗ commit rejected: staged content is $((total / 1024 / 1024)) MB (limit ${max_mb} MB)"
+  echo "  heaviest staged files:"
+  printf '%s' "$sizes" | sort -n -r | head -5 | awk '{printf "    %7.1f MB  %s\n", $1/1048576, substr($0, index($0,$2))}'
+  echo "  unstage with:    git restore --staged <path>"
+  echo "  ignore with:     echo '<path>' >> .gitignore"
+  echo "  split the commit, or override once: MAX_COMMIT_MB=50 git commit ..."
+} >&2
+exit 1

@@ -48,7 +48,8 @@
               passt # pasta, podman's newer rootless net backend
               catatonit # lightweight PID 1 for `--init` / compose
               util-linux # setsid -- detaches the fallback API service from the tty
-            ]);
+          ] ++ (import ./nix/tools.nix { inherit pkgs; }).all ++ []
+);
 
           shellHook = ''
             if [ ! -e .env ] && [ -f .env.example ]; then

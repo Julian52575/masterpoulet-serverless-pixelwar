@@ -59,9 +59,11 @@ This is adoption of existing infrastructure, not a procedure for recreating a
 deleted state bucket. Keep these buckets independent of application cleanup and
 never include this root in an apply/destroy/recreate demonstration.
 
-The historical PROD foundation state at `foundation/prd` and the currently
-configured prefix `foundation/prod` are separate objects. Adopting the bucket
-does not reconcile or migrate either state. See the [C02 validation report](../foundation/VALIDATION-2026-11-11.md).
+The canonical production prefixes are `foundation/prod`, `gke/prod`,
+`runners/prod` and `bootstrap/prod`. Bucket adoption does not migrate another
+stack's state. Check the [PROD migration status](../foundation/MIGRATION-PROD-2026-11-11.md)
+before using the foundation backend. The [earlier C02 validation](../foundation/VALIDATION-2026-11-11.md)
+is an archived snapshot of ownership before migration.
 
 References: [Terraform imports](https://developer.hashicorp.com/terraform/language/import),
 [lifecycle protection](https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle),

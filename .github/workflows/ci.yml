@@ -231,7 +231,7 @@ jobs:
       contents: read
       id-token: write
     strategy:
-      max-parallel: 1 # dev must succeed before prd
+      max-parallel: 1 # dev must succeed before prod
       matrix:
         env: [dev, prod]
     environment: ${{ matrix.env }}

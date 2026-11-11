@@ -1,0 +1,213 @@
+{
+  "status": "PREPARATION_ONLY",
+  "checked_at_utc": "2026-11-11T17:21:43.703785+00:00",
+  "operator_freeze_confirmed": false,
+  "user_decision": "Non, préparer seulement la migration",
+  "migration_executed": false,
+  "apply_or_destroy_executed": false,
+  "source_historical": {
+    "uri": "gs://masterpoulet_prod_bucket/foundation/prd/default.tfstate",
+    "metadata": {
+      "name": "foundation/prd/default.tfstate",
+      "generation": "1792763537877160",
+      "metageneration": 1,
+      "md5_hash": "pnlfvU2MyMIwXax0D87e6A==",
+      "crc32c_hash": "dKaVqA==",
+      "size": 5194,
+      "update_time": "2026-10-23T13:52:17+0000"
+    },
+    "state": {
+      "sha256": "f5fe0934b6c4e003ac277321e856b29492b98ee855bbc01205baae9587e932a9",
+      "version": 4,
+      "lineage": "7e009275-d640-4fa0-8a3a-e5d7656547e0",
+      "serial": 5,
+      "resource_count": 2,
+      "outputs": [
+        "network_id",
+        "subnet_cidr",
+        "subnet_id"
+      ],
+      "check_results_empty": false,
+      "resources": [
+        {
+          "address": "google_compute_network.vpc",
+          "mode": "managed",
+          "type": "google_compute_network",
+          "id": "projects/masterpoulet-prod/global/networks/masterpoulet-prod-vpc",
+          "name": "masterpoulet-prod-vpc",
+          "project": "masterpoulet-prod"
+        },
+        {
+          "address": "google_compute_subnetwork.subnet",
+          "mode": "managed",
+          "type": "google_compute_subnetwork",
+          "id": "projects/masterpoulet-prod/regions/europe-west3/subnetworks/masterpoulet-prod-vpc-subnet",
+          "name": "masterpoulet-prod-vpc-subnet",
+          "project": "masterpoulet-prod"
+        }
+      ]
+    }
+  },
+  "destination_canonical": {
+    "uri": "gs://masterpoulet_prod_bucket/foundation/prod/default.tfstate",
+    "metadata": {
+      "name": "foundation/prod/default.tfstate",
+      "generation": "1793714422833208",
+      "metageneration": 1,
+      "md5_hash": "z0KGg3wQIUTM2dUIC/MvpQ==",
+      "crc32c_hash": "T7eoPw==",
+      "size": 181,
+      "update_time": "2026-11-03T14:00:22+0000"
+    },
+    "state": {
+      "sha256": "1f5a69255c29d41fb31b01b9c7233730747f9aa29cb6552bb0251e4cbb9f14a0",
+      "version": 4,
+      "lineage": "8176c273-dfb3-c80e-efc1-ed1031e16915",
+      "serial": 1,
+      "resource_count": 0,
+      "outputs": [],
+      "check_results_empty": true,
+      "resources": []
+    }
+  },
+  "source_and_destination_unchanged": true,
+  "all_eight_states_unchanged": true,
+  "gcp_vpc_and_subnet_unchanged": true,
+  "bucket_metadata_unchanged": true,
+  "secure_backups": [
+    {
+      "name": "foundation-source-archive.tfstate",
+      "uri": "gs://masterpoulet_prod_bucket/foundation/prd/default.tfstate",
+      "generation": "1792763537877160",
+      "sha256": "f5fe0934b6c4e003ac277321e856b29492b98ee855bbc01205baae9587e932a9",
+      "outside_git": true,
+      "restricted_acl": true
+    },
+    {
+      "name": "foundation-destination-before-empty.tfstate",
+      "uri": "gs://masterpoulet_prod_bucket/foundation/prod/default.tfstate",
+      "generation": "1793714422833208",
+      "sha256": "1f5a69255c29d41fb31b01b9c7233730747f9aa29cb6552bb0251e4cbb9f14a0",
+      "outside_git": true,
+      "restricted_acl": true
+    }
+  ],
+  "backup_directory_template": "%LOCALAPPDATA%/Codex/secure-state-backups/prod-standardization-20261111-172045/",
+  "gcs_versioning_enabled": true,
+  "source_generation_readable": true,
+  "destination_generation_readable": true,
+  "no_locks_observed": true,
+  "active_or_queued_github_runs_observed": 0,
+  "github_checks_do_not_establish_other_operators_are_frozen": true,
+  "planned_migration_mechanism": "terraform init -migrate-state; source and destination locking; interactive confirmation; no force-copy",
+  "historical_source_review_plan": {
+    "mode": "source",
+    "reference_commit": "1ae9c75f6fd960a81511ae58bc511dcfc7117cfc",
+    "backend_prefix": "foundation/prd",
+    "plan_exit_code": 2,
+    "changes": [
+      {
+        "address": "google_compute_network.vpc",
+        "actions": [
+          "no-op"
+        ],
+        "before": {
+          "id": "projects/masterpoulet-prod/global/networks/masterpoulet-prod-vpc",
+          "name": "masterpoulet-prod-vpc",
+          "project": "masterpoulet-prod"
+        },
+        "after": {
+          "id": "projects/masterpoulet-prod/global/networks/masterpoulet-prod-vpc",
+          "name": "masterpoulet-prod-vpc",
+          "project": "masterpoulet-prod"
+        }
+      },
+      {
+        "address": "google_compute_router.router",
+        "actions": [
+          "create"
+        ],
+        "before": {},
+        "after": {
+          "name": "masterpoulet-prod-vpc-router",
+          "network": "projects/masterpoulet-prod/global/networks/masterpoulet-prod-vpc",
+          "project": "masterpoulet-prod",
+          "region": "europe-west3"
+        }
+      },
+      {
+        "address": "google_compute_router_nat.nat",
+        "actions": [
+          "create"
+        ],
+        "before": {},
+        "after": {
+          "name": "masterpoulet-prod-vpc-nat",
+          "nat_ip_allocate_option": "AUTO_ONLY",
+          "project": "masterpoulet-prod",
+          "region": "europe-west3",
+          "router": "masterpoulet-prod-vpc-router",
+          "source_subnetwork_ip_ranges_to_nat": "LIST_OF_SUBNETWORKS",
+          "subnetwork": [
+            {
+              "name": "projects/masterpoulet-prod/regions/europe-west3/subnetworks/masterpoulet-prod-vpc-subnet",
+              "secondary_ip_range_names": [],
+              "source_ip_ranges_to_nat": [
+                "ALL_IP_RANGES"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "address": "google_compute_subnetwork.subnet",
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "id": "projects/masterpoulet-prod/regions/europe-west3/subnetworks/masterpoulet-prod-vpc-subnet",
+          "ip_cidr_range": "10.0.2.0/24",
+          "name": "masterpoulet-prod-vpc-subnet",
+          "network": "https://www.googleapis.com/compute/v1/projects/masterpoulet-prod/global/networks/masterpoulet-prod-vpc",
+          "private_ip_google_access": true,
+          "project": "masterpoulet-prod",
+          "region": "europe-west3",
+          "secondary_ip_range": []
+        },
+        "after": {
+          "id": "projects/masterpoulet-prod/regions/europe-west3/subnetworks/masterpoulet-prod-vpc-subnet",
+          "ip_cidr_range": "10.0.2.0/24",
+          "name": "masterpoulet-prod-vpc-subnet",
+          "network": "https://www.googleapis.com/compute/v1/projects/masterpoulet-prod/global/networks/masterpoulet-prod-vpc",
+          "private_ip_google_access": true,
+          "project": "masterpoulet-prod",
+          "region": "europe-west3",
+          "secondary_ip_range": [
+            {
+              "ip_cidr_range": "10.32.0.0/21",
+              "range_name": "masterpoulet-prod-vpc-subnet-pods",
+              "reserved_internal_range": null
+            },
+            {
+              "ip_cidr_range": "10.32.8.0/24",
+              "range_name": "masterpoulet-prod-vpc-subnet-services",
+              "reserved_internal_range": null
+            }
+          ]
+        }
+      }
+    ],
+    "state_lineage": "7e009275-d640-4fa0-8a3a-e5d7656547e0",
+    "state_serial": 5,
+    "no_apply_executed": true
+  },
+  "post_migration_plan_available": false,
+  "canonical_prefixes": {
+    "foundation": "foundation/prod",
+    "gke": "gke/prod",
+    "runners": "runners/prod",
+    "bootstrap": "bootstrap/prod"
+  },
+  "c04_reference": "1ae9c75f6fd960a81511ae58bc511dcfc7117cfc",
+  "c04_merged": false
+}

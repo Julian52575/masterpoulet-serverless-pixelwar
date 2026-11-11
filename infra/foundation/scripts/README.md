@@ -10,7 +10,7 @@ JSON document:
 
 Terraform state is not read: it lives in GCS and the script never fetches it, so
 it cannot prove that Terraform owns a matching live resource (`terraform plan` in
-CI does that). Deployment stays in `.github/workflows/terraform-ci.yml` (plan) and
+CI does that). Deployment stays in `.github/workflows/ci.yml` (plan) and
 `terraform-deploy.yml` (apply). This script never invokes them.
 
 ## Usage

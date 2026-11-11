@@ -31,11 +31,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 1 # dev must succeed before prd
+      max-parallel: 1 # dev must succeed before prod
       matrix:
         # Tag pushes have no inputs and deploy both
         env: ${{ fromJSON((inputs.environment == 'dev' && '["dev"]') || (inputs.environment == 'prod' && '["prod"]') || '["dev","prod"]') }}
-    environment: ${{ matrix.env }} # add required reviewers on prd
+    environment: ${{ matrix.env }} # add required reviewers on prod
     env:
       MODE: ${{ inputs.mode || 'apply' }} # tag pushes always apply
       TF_ENV: ${{ matrix.env }}

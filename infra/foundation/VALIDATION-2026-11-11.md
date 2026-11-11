@@ -1,5 +1,10 @@
 # Validation C02 Terraform / GCP — 11 novembre 2026
 
+> **Archive avant migration.** Ce rapport et ses preuves décrivent l'audit C02
+> précédent. Les anciens chemins sont conservés pour tracer les observations.
+> Voir le [rapport de standardisation PROD](MIGRATION-PROD-2026-11-11.md) pour
+> le statut de migration actuel et les commandes opérationnelles.
+
 Trois objectifs sont validés. L'objectif 2 reste bloqué : le state propriétaire
 PROD et le backend configuré diffèrent, et le plan dépasse l'ajout des plages.
 Aucune modification du réseau partagé DEV ou PROD n'a été appliquée.

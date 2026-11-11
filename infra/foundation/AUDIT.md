@@ -1,4 +1,8 @@
-# Actualisation DEV / PROD — 23 octobre 2026
+# Archive — actualisation DEV / PROD du 23 octobre 2026
+
+> Historical evidence only. Old production spellings and commands below are
+> preserved as observed, not as operational instructions. Use `prod.tfvars`,
+> `backends/prod.hcl` and the [current migration report](MIGRATION-PROD-2026-11-11.md).
 
 Cette section remplace les constats historiques ci-dessous. Branche conservée :
 `feat/c02-foundation`, HEAD `c903802`, dépôt initialement propre. Aucun commit,

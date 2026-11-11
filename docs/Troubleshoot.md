@@ -22,7 +22,12 @@ Known incidents with their cause and fix. Rules for adding entries are in [CONTR
 returns no changes. No repair or redeployment was needed. See the
 [C02 validation report](../infra/foundation/VALIDATION-2026-11-11.md).
 
-## PROD backend prefix does not own the existing network
+## Historical incident: PROD backend prefix does not own the existing network
+
+**Current migration status:** see the [PROD migration report](../infra/foundation/MIGRATION-PROD-2026-11-11.md).
+The observation below is archived. A prepared procedure and backups do not mean
+the migration has run; the report records whether the maintenance freeze and
+the state copy have actually completed.
 
 **Error:** a foundation PROD plan proposes creating the VPC and subnet even
 though both exist on GCP. The configured `foundation/prod/default.tfstate` has

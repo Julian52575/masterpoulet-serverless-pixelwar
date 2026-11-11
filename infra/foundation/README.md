@@ -1,5 +1,10 @@
 # Foundation: development and production networks
 
+> Before planning or applying, read the [11 November 2026 C02 validation](VALIDATION-2026-11-11.md).
+> The existing PROD VPC/subnet belong to `foundation/prd`; the configured
+> `foundation/prod` state is empty. Do not apply a plan that recreates those
+> existing resources. The historical results below are not a current audit.
+
 Run from this directory in PowerShell. This shared root manages only
 `google_compute_network.vpc` and `google_compute_subnetwork.subnet`. The Google
 provider explicitly selects `var.project_id`. No bucket, IAM, API activation,

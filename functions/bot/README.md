@@ -1,6 +1,6 @@
 # Discord bot (C07)
 
-The Discord bot of Pixelwar: four Cloud Run services that talk to each other only through events.
+The Discord bot of Pixelwar: four Cloud Functions (2nd gen) that talk to each other only through events.
 This page is the reference for running, testing and deploying them.
 
 ## Architecture
@@ -41,7 +41,24 @@ Admin rights are checked in `command-worker`, never only in Discord. Admin repli
 
 ## Services
 
-All services listen on `PORT` (default `8080`), read their configuration at startup and exit if it is invalid. Each one runs as `node local.js` (see its `Dockerfile`).
+Each service is an HTTP Cloud Function built with `@google-cloud/functions-framework`. `index.js` registers the function and reads the configuration when it loads; an invalid configuration stops it from loading. `local.js` and the `Dockerfile` are kept for running a service as a plain container.
+
+| Service | Folder | Entry point |
+|---|---|---|
+| discord-proxy | `discord-proxy/` | `discordProxy` |
+| command-worker | `command-worker/` | `commandWorker` |
+| snapshot-worker | `snapshot-worker/` | `snapshotWorker` |
+| snapshot-notifier | `snapshot-notifier/` | `snapshotNotifier` |
+
+Deploy from the service folder (the `.gcloudignore` keeps tests and local files out of the upload):
+
+```bash
+gcloud functions deploy <name> --gen2 --runtime=nodejs22 --region=<region> \
+  --source=. --entry-point=<entry point> --trigger-http --no-allow-unauthenticated \
+  --service-account=<service account> --set-env-vars=...
+```
+
+Run one locally with `npm start` (listens on port `8080`).
 
 ### discord-proxy
 
@@ -128,7 +145,7 @@ What the Terraform has to provide for the bot:
 - An Eventarc trigger on that bucket → snapshot-notifier. The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
 - The secret holding the Discord public key.
 - One service account per service, with the roles listed above.
-- Four Cloud Run services, **not** publicly invokable: discord-proxy is reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
+- Four Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy is reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
 - An API Gateway route `POST /interactions` → discord-proxy. Its URL goes in the Discord portal as *Interactions Endpoint URL*.
 
 ## Development

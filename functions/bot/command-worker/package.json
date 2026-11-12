@@ -3,16 +3,20 @@
   "version": "1.0.0",
   "description": "Serverless worker consuming Discord commands from Pub/Sub for Pixelwar C07",
   "private": true,
-  "main": "worker.js",
+  "main": "index.js",
   "scripts": {
     "test": "node --test",
-    "start": "node local.js"
+    "start": "functions-framework --target=commandWorker"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.4.0",
+    "@google-cloud/functions-framework": "^5.0.5",
     "@google-cloud/pubsub": "^6.3.2"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

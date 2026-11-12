@@ -1,24 +1,26 @@
 const { PubSub } = require("@google-cloud/pubsub");
+const { readTopic, TOPICS } = require("./config");
+const { routeCommand } = require("./routing");
 
-let topic;
+let client;
+const defaultTopic = (name) => (client ??= new PubSub()).topic(name);
 
-function getTopic() {
-  if (!topic) {
-    const name = process.env.PUBSUB_TOPIC;
-    if (!name) throw new Error("PUBSUB_TOPIC is not configured");
-    topic = new PubSub().topic(name);
+function createPublisher({ createTopic = defaultTopic, env = process.env, now = () => new Date() } = {}) {
+  const topics = new Map();
+
+  function getTopic(route) {
+    const name = readTopic(route, env);
+    if (!name) throw new Error(`${TOPICS[route]} is not configured`);
+    if (!topics.has(name)) topics.set(name, createTopic(name));
+    return topics.get(name);
   }
-  return topic;
+
+  return async function publishCommand(command) {
+    const { route, event, attributes } = routeCommand(command, now());
+    return getTopic(route).publishMessage({ json: event, attributes });
+  };
 }
 
-async function publishCommand(event) {
-  return getTopic().publishMessage({
-    json: event,
-    attributes: {
-      type: event.type,
-      correlation_id: event.correlation_id
-    }
-  });
-}
+const publishCommand = createPublisher();
 
-module.exports = { publishCommand };
+module.exports = { createPublisher, publishCommand };

@@ -3,9 +3,12 @@ const nacl = require("tweetnacl");
 const { log } = require("./logger");
 const { parseInteraction } = require("./interaction");
 const { publishCommand } = require("./publisher");
-const { readPublicKey } = require("./config");
+const { readAdmins, readPublicKey } = require("./config");
+const { createAuthorizer } = require("./admins");
 
 const EPHEMERAL = 64;
+const ADMIN_ONLY = new Set(["snapshot"]);
+const REFUSED = "⛔ This command is for administrators only.";
 
 function reply(statusCode, body, correlationId) {
   return {
@@ -52,7 +55,7 @@ function verifyDiscordRequest(publicKey, signature, timestamp, rawBody) {
   }
 }
 
-function createHandler({ publish }) {
+function createHandler({ publish, isAdmin = () => false }) {
   return async function handler(event) {
     const headers = Object.fromEntries(
       Object.entries(event.headers || {}).map(([key, value]) => [
@@ -134,6 +137,11 @@ function createHandler({ publish }) {
       };
       log.info("discord command received", fields);
 
+      if (ADMIN_ONLY.has(command.type) && !isAdmin(command)) {
+        log.warn("admin command refused", fields);
+        return reply(200, { type: 4, data: { content: REFUSED, flags: EPHEMERAL } }, correlationId);
+      }
+
       try {
         const messageId = await publish({ ...command, correlation_id: correlationId });
         log.info("discord command published", { ...fields, message_id: messageId });
@@ -153,6 +161,6 @@ function createHandler({ publish }) {
   };
 }
 
-const handler = createHandler({ publish: publishCommand });
+const handler = createHandler({ publish: publishCommand, isAdmin: createAuthorizer(readAdmins()).isAdmin });
 
 module.exports = { createHandler, handler, verifyDiscordRequest };

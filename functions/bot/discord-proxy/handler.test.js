@@ -18,7 +18,8 @@ const handler = createHandler({
     if (failPublish) throw new Error("pubsub unavailable");
     published.push(event);
     return `message-${published.length}`;
-  }
+  },
+  isAdmin: (command) => command.roles.includes("900")
 });
 
 function sign(timestamp, body) {
@@ -310,6 +311,38 @@ describe("handler publishing", () => {
 
     const snapshotRes = await handler(signedEvent(slash({ name: "snapshot" })));
     assert.deepEqual(JSON.parse(snapshotRes.body), { type: 5 });
+  });
+
+  test("publishes /snapshot from an admin", async () => {
+    await handler(signedEvent(slash({ name: "snapshot" })));
+    assert.equal(published[0].type, "snapshot");
+  });
+
+  test("refuses /snapshot from a non-admin right away and publishes nothing", async () => {
+    const event = signedEvent(slash({ name: "snapshot" }, { member: { user: { id: "222", username: "bob" }, roles: [] } }));
+    const { result: res, entries } = await captureLogs(() => handler(event));
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), {
+      type: 4,
+      data: { content: "⛔ This command is for administrators only.", flags: 64 }
+    });
+    assert.equal(published.length, 0);
+    const entry = entries.find((e) => e.message === "admin command refused");
+    assert.equal(entry.severity, "WARNING");
+    assert.equal(entry.user_id, "222");
+  });
+
+  test("refuses /snapshot when no admin is configured", async () => {
+    const strict = createHandler({ publish: async () => "never" });
+    const res = await captureLogs(() => strict(signedEvent(slash({ name: "snapshot" }))));
+    assert.equal(JSON.parse(res.result.body).type, 4);
+  });
+
+  test("leaves the other admin checks to admin-cmd", async () => {
+    const res = await handler(signedEvent(admin("pause"), {}));
+    assert.equal(JSON.parse(res.body).type, 5);
+    assert.equal(published[0].type, "admin.pause");
   });
 
   test("logs the Pub/Sub message id once the command is published", async () => {

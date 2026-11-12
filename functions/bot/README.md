@@ -6,21 +6,19 @@ This page is the reference for running, testing and deploying them.
 ## Architecture
 
 ```
-Discord ──HTTPS──► API Gateway ──► discord-proxy ──[discord-command]──► command-worker ──► Firestore
-                                                                            │
-                                                     [pixel-events] ◄───────┤
-                                                                            │
-                                                [snapshot-requested] ◄──────┘
-                                                          │
-                                                          ▼
-                                                   snapshot-worker ──► bucket (snapshots/*.png)
-                                                                            │ object.finalized (Eventarc)
-                                                                            ▼
-                                                                    snapshot-notifier ──► Discord
+                                         ┌──[draw-pixel]──────────► draw-pixel ──► Firestore
+                                         │
+Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬─(admin.*)─► admin-cmd ──► Firestore
+                                         │              └─(get)─────► get-canvas ──► Firestore (read)
+                                         │
+                                         └──[snapshot-requested]──► snapshot-worker ──► bucket (snapshots/*.png)
+                                                                    │ object.finalized (Eventarc)
+                                                                    ▼
+                                                            snapshot-notifier ──► Discord
 ```
 
-1. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command.
-2. `command-worker` checks admin rights, applies the rules (pause, rate limit, validation) in Firestore transactions, publishes events and edits the Discord reply.
+1. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command on one of three topics: `/draw` on `draw-pixel`, `/snapshot` on `snapshot-requested`, everything else on `commands`.
+2. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions, publish events and edit the Discord reply. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
 3. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
 4. `snapshot-notifier` reacts to the new object and sends a signed link to Discord.
 
@@ -37,7 +35,7 @@ Every log line is JSON on stdout (`severity`, `message`, `function`, `timestamp`
 | `/admin clear` | admins | clears the canvas |
 | `/admin ratelimit user limit` | admins | sets a user's draws per minute (default 20) |
 
-Admin rights are checked in `command-worker`, never only in Discord. Admin replies are ephemeral.
+Admin rights are checked by the services, never only in Discord: `admin-cmd` for `/admin`, `discord-proxy` for `/snapshot` (its request goes straight to `snapshot-worker`, so the proxy refuses it at once for a non-admin). Admin replies are ephemeral.
 
 ## Services
 
@@ -68,9 +66,11 @@ Run one locally with `npm start` (listens on port `8080`).
 | | |
 |---|---|
 | Trigger | `POST /interactions`, from Discord through the API Gateway |
-| Publishes to | `discord-command` (attributes `type`, `correlation_id`) |
-| Env | `DISCORD_PUBLIC_KEY` (required, 64 hex chars, **from Secret Manager**), `PUBSUB_TOPIC` (required, e.g. `discord-command`) |
-| Needs | `roles/pubsub.publisher` on `discord-command`, `roles/secretmanager.secretAccessor` on the public key secret |
+| Publishes to | `draw-pixel` (`draw`), `commands` (`get`, `admin.*`), `snapshot-requested` (`snapshot.requested`); attributes `type` and `correlation_id` (plus `snapshot_id` for snapshots) |
+| Env | `DISCORD_PUBLIC_KEY` (required, 64 hex chars, **from Secret Manager**), `DRAW_TOPIC`, `COMMANDS_TOPIC`, `SNAPSHOT_TOPIC` (required, topic names), `ADMIN_USER_IDS` and/or `ADMIN_ROLE_IDS` (comma-separated Discord ids allowed to run `/snapshot`; if both are empty `/snapshot` is refused to everyone) |
+| Needs | `roles/pubsub.publisher` on the three topics, `roles/secretmanager.secretAccessor` on the public key secret |
+
+`/snapshot` is turned into the `snapshot.requested` event `snapshot-worker` expects (`snapshot_id` is the interaction id, `requested_at` the time the proxy received it). The roles it checks come from the interaction, which Discord signs, so they cannot be forged.
 
 The gateway must forward the request body **unchanged** and the `x-signature-ed25519` and `x-signature-timestamp` headers: the signature is computed on the raw bytes.
 
@@ -80,7 +80,7 @@ The gateway must forward the request body **unchanged** and the `x-signature-ed2
 
 | | |
 |---|---|
-| Trigger | Pub/Sub push from `discord-command`, `POST /` |
+| Trigger | Pub/Sub push from `commands`, `POST /` (being replaced by draw-pixel, admin-cmd and get-canvas; remove its subscription once theirs exist, or admin commands run twice) |
 | Publishes to | `pixel-events` (`pixel.processed`, `canvas.cleared`), `snapshot-requested` (`snapshot.requested`) |
 | Env | `PIXEL_EVENTS_TOPIC` (required), `SNAPSHOT_TOPIC` (required), `ADMIN_USER_IDS` and/or `ADMIN_ROLE_IDS` (comma-separated Discord ids; if both are empty every admin command is refused) |
 | Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` and `snapshot-requested` |
@@ -97,13 +97,13 @@ The gateway must forward the request body **unchanged** and the `x-signature-ed2
 | Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply of `/draw` (web draws never call Discord) |
 
-It applies the same rules as before: pause, per-user rate limit shared by Discord and the web, Firestore transactions and idempotency receipts. Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts. Until the proxy publishes draws to the `draw-pixel` topic, `command-worker` still handles them too.
+It applies the same rules as before: pause, per-user rate limit shared by Discord and the web, Firestore transactions and idempotency receipts. Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts.
 
 ### admin-cmd
 
 | | |
 |---|---|
-| Trigger | Pub/Sub push from `discord-command`, through a subscription filtered on admin commands (`hasPrefix(attributes.type, "admin.")`), `POST /` |
+| Trigger | Pub/Sub push from `commands`, through a subscription filtered on admin commands (`hasPrefix(attributes.type, "admin.")`), `POST /` |
 | Handles | `admin.pause`, `admin.resume`, `admin.clear`, `admin.ratelimit`; any other type answers `400` and goes to the dead-letter topic |
 | Publishes to | `pixel-events` (`canvas.paused`, `canvas.resumed`, `canvas.cleared`) |
 | Env | `PIXEL_EVENTS_TOPIC` (required), `ADMIN_USER_IDS` and/or `ADMIN_ROLE_IDS` (comma-separated Discord ids; if both are empty every command is refused) |
@@ -116,7 +116,7 @@ Every message is checked against the admin allow-list before anything runs: a no
 
 | | |
 |---|---|
-| Trigger | Pub/Sub push from `discord-command`, through a subscription filtered on `/get` (`attributes.type = "get"`), `POST /` |
+| Trigger | Pub/Sub push from `commands`, through a subscription filtered on `/get` (`attributes.type = "get"`), `POST /` |
 | Handles | `get` only, for every user; any other type answers `400` and goes to the dead-letter topic |
 | Reads | `state/canvas` and the visible pixels in Firestore |
 | Env | none |
@@ -148,9 +148,10 @@ The signed URL and the interaction token are never logged.
 
 | Topic | Message `type` | Producer | Consumer |
 |---|---|---|---|
-| `discord-command` | `draw`, `get`, `snapshot`, `admin.pause`, `admin.resume`, `admin.clear`, `admin.ratelimit` | discord-proxy | command-worker |
+| `draw-pixel` | `draw` | discord-proxy | draw-pixel |
+| `commands` | `get`, `admin.pause`, `admin.resume`, `admin.clear`, `admin.ratelimit` | discord-proxy | admin-cmd (`hasPrefix(attributes.type, "admin.")`), get-canvas (`attributes.type = "get"`) |
 | `pixel-events` | `pixel.processed`, `canvas.cleared` | command-worker | the web side (real time) |
-| `snapshot-requested` | `snapshot.requested` | command-worker | snapshot-worker |
+| `snapshot-requested` | `snapshot.requested` | discord-proxy | snapshot-worker |
 
 `pixel.processed` carries `x`, `y`, `tile`, `color`, `author`, `author_name`, `updated_at` and `correlation_id`; its `tile` attribute allows filtered subscriptions. `canvas.cleared` carries `cleared_at` and `cleared_by`.
 
@@ -181,8 +182,8 @@ Only single-field indexes are used. TTL policies on `ratelimit.expires_at` and `
 What the Terraform has to provide for the bot:
 
 - Firestore (native mode), with the two TTL policies above.
-- Topics `discord-command`, `pixel-events` and `snapshot-requested`, each with a dead-letter topic.
-- Push subscriptions `discord-command` → command-worker and `snapshot-requested` → snapshot-worker, authenticated with OIDC (a service account with `roles/run.invoker`), with an ack deadline of about 60 s and a dead-letter policy.
+- Topics `draw-pixel`, `commands`, `pixel-events` and `snapshot-requested`, each with a dead-letter topic.
+- Push subscriptions `draw-pixel` → draw-pixel, `commands` → admin-cmd (filter `hasPrefix(attributes.type, "admin.")`), `commands` → get-canvas (filter `attributes.type = "get"`) and `snapshot-requested` → snapshot-worker, authenticated with OIDC (a service account with `roles/run.invoker`), with an ack deadline of about 60 s and a dead-letter policy.
 - A private bucket (uniform access, public access prevention) for snapshots.
 - An Eventarc trigger on that bucket → snapshot-notifier. The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
 - The secret holding the Discord public key.

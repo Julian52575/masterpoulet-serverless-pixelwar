@@ -16,7 +16,9 @@ describe("index.js", () => {
 
   before(async () => {
     process.env.DISCORD_PUBLIC_KEY = hex(keys.publicKey);
-    process.env.PUBSUB_TOPIC = "discord-command";
+    process.env.DRAW_TOPIC = "draw-pixel";
+    process.env.COMMANDS_TOPIC = "commands";
+    process.env.SNAPSHOT_TOPIC = "snapshot";
     require("./index");
     const { getTestServer } = require("@google-cloud/functions-framework/testing");
     server = getTestServer("discordProxy");

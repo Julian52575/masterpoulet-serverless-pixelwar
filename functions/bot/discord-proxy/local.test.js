@@ -4,6 +4,7 @@ const { spawn } = require("node:child_process");
 const path = require("node:path");
 
 const KEY = "a".repeat(64);
+const TOPICS = { DRAW_TOPIC: "draw-pixel", COMMANDS_TOPIC: "commands", SNAPSHOT_TOPIC: "snapshot" };
 
 function start(env) {
   const child = spawn(process.execPath, [path.join(__dirname, "local.js")], {
@@ -30,18 +31,23 @@ describe("local.js startup", () => {
 
     assert.equal(code, 1);
     const problems = lines(out.stderr).map((entry) => entry.problem);
-    assert.deepEqual(problems, ["DISCORD_PUBLIC_KEY is not configured", "PUBSUB_TOPIC is not configured"]);
+    assert.deepEqual(problems, [
+      "DISCORD_PUBLIC_KEY is not configured",
+      "DRAW_TOPIC is not configured",
+      "COMMANDS_TOPIC is not configured",
+      "SNAPSHOT_TOPIC is not configured"
+    ]);
     assert.ok(lines(out.stderr).every((entry) => entry.severity === "ERROR"));
   });
 
   test("refuses a public key that is not 64 hexadecimal characters", async () => {
-    const { child, out } = start({ DISCORD_PUBLIC_KEY: "not-a-key", PUBSUB_TOPIC: "t" });
+    const { child, out } = start({ DISCORD_PUBLIC_KEY: "not-a-key", ...TOPICS });
     assert.equal(await exited(child), 1);
     assert.match(out.stderr, /must be 64 hexadecimal characters/);
   });
 
   test("starts and logs a JSON line when the configuration is valid", async () => {
-    const { child, out } = start({ DISCORD_PUBLIC_KEY: `${KEY}\n`, PUBSUB_TOPIC: "t", PORT: "0" });
+    const { child, out } = start({ DISCORD_PUBLIC_KEY: `${KEY}\n`, ...TOPICS, PORT: "0" });
     try {
       await new Promise((resolve, reject) => {
         child.stdout.once("data", resolve);

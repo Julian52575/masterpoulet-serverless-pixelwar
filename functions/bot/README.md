@@ -49,6 +49,7 @@ Each service is an HTTP Cloud Function built with `@google-cloud/functions-frame
 | command-worker | `command-worker/` | `commandWorker` |
 | draw-pixel | `draw-pixel/` | `drawPixel` |
 | admin-cmd | `admin-cmd/` | `adminCmd` |
+| get-canvas | `get-canvas/` | `getCanvas` |
 | snapshot-worker | `snapshot-worker/` | `snapshotWorker` |
 | snapshot-notifier | `snapshot-notifier/` | `snapshotNotifier` |
 
@@ -110,6 +111,19 @@ It applies the same rules as before: pause, per-user rate limit shared by Discor
 | Calls | `https://discord.com/api/v10` to edit the deferred reply |
 
 Every message is checked against the admin allow-list before anything runs: a normal user gets "for administrators only" and nothing is written. Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts.
+
+### get-canvas
+
+| | |
+|---|---|
+| Trigger | Pub/Sub push from `discord-command`, through a subscription filtered on `/get` (`attributes.type = "get"`), `POST /` |
+| Handles | `get` only, for every user; any other type answers `400` and goes to the dead-letter topic |
+| Reads | `state/canvas` and the visible pixels in Firestore |
+| Env | none |
+| Needs | `roles/datastore.viewer` |
+| Calls | `https://discord.com/api/v10` to edit the deferred reply with the PNG attached |
+
+Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts.
 
 ### snapshot-worker
 

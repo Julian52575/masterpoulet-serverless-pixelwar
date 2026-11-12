@@ -154,7 +154,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        function: [discord-proxy, command-worker, snapshot-worker, snapshot-notifier]
+        function: [discord-proxy, command-worker, draw-pixel, snapshot-worker, snapshot-notifier]
     defaults:
       run:
         working-directory: functions/bot/${{ matrix.function }}
@@ -311,6 +311,7 @@ jobs:
           - { name: backend, workspace: backend }
           - { name: discord-proxy, workspace: functions/bot/discord-proxy }
           - { name: command-worker, workspace: functions/bot/command-worker }
+          - { name: draw-pixel, workspace: functions/bot/draw-pixel }
           - { name: snapshot-worker, workspace: functions/bot/snapshot-worker }
           - { name: snapshot-notifier, workspace: functions/bot/snapshot-notifier }
     env:

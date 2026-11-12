@@ -47,6 +47,7 @@ Each service is an HTTP Cloud Function built with `@google-cloud/functions-frame
 |---|---|---|
 | discord-proxy | `discord-proxy/` | `discordProxy` |
 | command-worker | `command-worker/` | `commandWorker` |
+| draw-pixel | `draw-pixel/` | `drawPixel` |
 | snapshot-worker | `snapshot-worker/` | `snapshotWorker` |
 | snapshot-notifier | `snapshot-notifier/` | `snapshotNotifier` |
 
@@ -82,6 +83,19 @@ The gateway must forward the request body **unchanged** and the `x-signature-ed2
 | Env | `PIXEL_EVENTS_TOPIC` (required), `SNAPSHOT_TOPIC` (required), `ADMIN_USER_IDS` and/or `ADMIN_ROLE_IDS` (comma-separated Discord ids; if both are empty every admin command is refused) |
 | Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` and `snapshot-requested` |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply (no token needed: the interaction token travels in the message) |
+
+### draw-pixel
+
+| | |
+|---|---|
+| Trigger | Pub/Sub push from `draw-pixel`, `POST /` |
+| Handles | `draw` (Discord `/draw`) and `web.draw` (website pixel and brush); any other type answers `400` and goes to the dead-letter topic |
+| Publishes to | `pixel-events` (`pixel.processed`, `pixels.processed`) |
+| Env | `PIXEL_EVENTS_TOPIC` (required) |
+| Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` |
+| Calls | `https://discord.com/api/v10` to edit the deferred reply of `/draw` (web draws never call Discord) |
+
+It applies the same rules as before: pause, per-user rate limit shared by Discord and the web, Firestore transactions and idempotency receipts. Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts. Until the proxy publishes draws to the `draw-pixel` topic, `command-worker` still handles them too.
 
 ### snapshot-worker
 

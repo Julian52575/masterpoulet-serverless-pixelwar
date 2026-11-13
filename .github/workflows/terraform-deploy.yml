@@ -1,79 +1,38 @@
-# .github/workflows/terraform-deploy.yml
 name: Terraform Plan (manual only)
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Environment(s) to inspect; never applies"
+        description: "Foundation environment to inspect; never applies"
         type: choice
-        options: [dev, prod, both]
+        options: [dev, prod]
         default: dev
-      ref:
-        description: "Ref to inspect (empty: the branch selected above); never applies"
-        type: string
-        required: false
 permissions:
   contents: read
   id-token: write
-run-name: "Terraform plan ${{ inputs.environment || 'both' }} @ ${{ inputs.ref || github.ref_name }}"
 jobs:
-  deploy:
+  plan:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1 # dev must succeed before prod
-      matrix:
-        # Manual plans only; OFF environments cannot be redeployed by a tag.
-        env: ${{ fromJSON((inputs.environment == 'dev' && '["dev"]') || (inputs.environment == 'prod' && '["prod"]') || '["dev","prod"]') }}
-    environment: ${{ matrix.env }} # add required reviewers on prod
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
     env:
-      MODE: plan # ON/OFF changes require the guarded local Python scripts
-      TF_ENV: ${{ matrix.env }}
+      TF_ENV: ${{ inputs.environment }}
+      TF_DATA_DIR: ${{ runner.temp }}/terraform-foundation-${{ inputs.environment }}
     defaults:
       run:
         working-directory: infra/foundation
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_wrapper: false # keeps plan output clean for the summary
+          terraform_wrapper: false
       - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SA }}
+      - run: terraform fmt -check -recursive
       - run: terraform init -input=false -lockfile=readonly -backend-config="backends/${TF_ENV}.hcl"
-      - name: Plan
-        env:
-          REF: ${{ inputs.ref || github.ref_name }}
-        run: |
-          terraform plan -input=false -no-color -lock-timeout=60s -var-file="${TF_ENV}.tfvars" -out=tfplan
-          {
-            echo "## Terraform ${MODE}: ${TF_ENV}"
-            echo "Ref \`${REF}\` at \`$(git rev-parse HEAD)\`"
-            echo '```'
-            terraform show -no-color tfplan
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Destroy guard
-        env:
-          ALLOW_DESTROY: "false"
-        run: |
-          # Replacements count too: they delete before or after creating.
-          destroyed=$(terraform show -json tfplan \
-            | jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | .address')
-          [ -z "$destroyed" ] && exit 0
-          {
-            echo "### Resources to delete or replace"
-            echo '```'
-            echo "$destroyed"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$MODE" = apply ] && [ "$ALLOW_DESTROY" != true ]; then
-            echo "::error::Plan deletes resources; rerun with allow_destroy to proceed:"
-            echo "$destroyed"
-            exit 1
-          fi
-          echo "::warning::Plan deletes resources:"
-          echo "$destroyed"
+      - run: terraform validate
+      - run: terraform plan -input=false -lock-timeout=60s -var-file="${TF_ENV}.tfvars"

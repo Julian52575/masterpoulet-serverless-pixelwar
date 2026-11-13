@@ -7,15 +7,11 @@ On linux, the easiest way to run and test the project is through nix.
 
 See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 
-## GCP infrastructure ON / OFF
+## GCP infrastructure
 
-```sh
-python deploy.py
-python destroy.py
-```
-
-Start with `--env dev --plan-only`. Read [the short operator guide](INFRA-POWER.md)
-for confirmations, protected networks, ARC credential recovery and current blockers.
+Use Terraform directly: [infrastructure guide](infra/README.md).
+The independent roots are bootstrap, foundation, GKE and ARC runners.
+CI validates all four without cloud access; deployments remain manual.
 
 ## Quick start
 

@@ -65,9 +65,8 @@ Providing dev tools for local testing is encouraged, like `api-scripts/`, use py
 | `just` | Run the project recipes (`just` lists them) |
 | `podman` / `podman-compose` | Run the full stack locally (`just up`) |
 | `node` / `npm` | Lint and test `backend/` and `frontend/` |
-| `terraform` | `init` / `plan` the infra in `infra/foundation` against a backend |
+| `terraform` | `fmt`, `init -backend=false`, `validate` in each permanent root; review cloud plans separately |
 | `gcloud` | Authenticate and inspect GCP. `gcloud auth print-access-token` can feed `GOOGLE_OAUTH_ACCESS_TOKEN` for a local `terraform plan` |
-| `python3 infra/foundation/scripts/check.py` | Compare Terraform config with live GCP, read-only (`--env dev\|prod\|all`) |
 | `zizmor` | Audit workflows for security issues, same version as CI (`zizmor .github/workflows/`) |
 | `actionlint` | Lint workflows: syntax, expressions, inputs, and `run:` scripts via shellcheck (`actionlint`) |
 | `shellcheck` | Lint shell scripts |

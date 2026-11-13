@@ -1,70 +1,23 @@
-# Existing Terraform state buckets
+# Bootstrap — buckets Terraform existants
 
-This root adopts the existing GCS buckets without creating new ones. It manages
-one bucket per state and does not manage their objects, IAM bindings, foundation,
-GKE or runners. Do not declare these buckets in another Terraform root.
+| Cible | Bucket | Backend |
+| --- | --- | --- |
+| DEV | masterpoulet_bucket | bootstrap/dev |
+| PROD | masterpoulet_prod_bucket | bootstrap/prod |
 
-| Environment | Project | Existing bucket | Backend prefix |
-| --- | --- | --- | --- |
-| DEV | masterpoulet-dev | masterpoulet_bucket | bootstrap/dev |
-| PROD | masterpoulet-prod | masterpoulet_prod_bucket | bootstrap/prod |
+Les deux buckets sont dans europe-west1. Chaque bucket a un seul propriétaire :
+google_storage_bucket.terraform_state dans son state bootstrap respectif,
+confirmé par lecture des states accessibles le 13 novembre 2026.
 
-Both buckets are regional in `EUROPE-WEST1`, including the PROD bucket. Their
-existing versioning, Uniform Bucket-Level Access, enforced Public Access
-Prevention, seven-day soft delete, encryption restrictions and noncurrent-version
-lifecycle rules are declared as observed. No locked retention policy is added.
-Provider attribution labels are disabled to avoid changing bucket metadata.
+Conserver prevent_destroy, force_destroy=false, versioning, Public Access
+Prevention, Uniform Bucket-Level Access, soft delete et les règles de rétention
+des anciennes versions. Ces paramètres reprennent les buckets existants.
+Les import blocks sont l’historique d’adoption, pas une invitation à relancer
+un import. Ne pas déclarer ces buckets dans foundation ou un autre state.
 
-`prevent_destroy` rejects a destroy while the resource declaration remains;
-`force_destroy = false` also prevents Terraform from emptying these buckets.
-Keep the resource and its protection in version control. These controls do not
-protect against deleting the configuration or deleting buckets outside Terraform.
+Utiliser backends/dev.hcl avec dev.tfvars, ou les deux fichiers prod, dans un
+TF_DATA_DIR dédié et le workspace default. Le bucket doit déjà exister avant
+init puisque son propre state y réside. Aucun destroy de ce root pour une démo.
+Les protections Terraform ne remplacent pas les droits IAM ni la sauvegarde.
 
-## Plan and adopt
-
-Use ADC credentials without putting them in files tracked by Git. From this
-directory, pair `backends/dev.hcl` with `dev.tfvars`, or `backends/prod.hcl` with
-`prod.tfvars`. Use a separate local `TF_DATA_DIR` for each environment and the
-`default` workspace. The selected backend must have the bucket and prefix above.
-
-```sh
-terraform fmt -check -recursive
-terraform init -backend-config=backends/dev.hcl -input=false -lockfile=readonly
-terraform workspace show
-terraform validate
-terraform plan -var-file=dev.tfvars -input=false -lock-timeout=60s -out=dev.tfplan
-```
-
-Before the first import, search the accessible states and configurations for an
-existing owner and record the generation/checksum of all pre-existing state
-objects. The first plan must show exactly one import and zero create, update,
-delete or replacement actions. Stop on any other action. Apply only that reviewed
-saved plan, then run a new plan and compare the bucket metadata and old state
-object generations/checksums with the initial inventory:
-
-```sh
-terraform apply -input=false dev.tfplan
-terraform plan -var-file=dev.tfvars -input=false -lock-timeout=60s -detailed-exitcode
-```
-
-Repeat for PROD with its own local data directory, backend and tfvars. The import
-blocks are retained as adoption history; after import they perform no operation.
-No state migration, object deletion or IAM update is part of this procedure.
-
-## Backend lifecycle
-
-Each bootstrap state lives under its own prefix in the existing bucket it
-manages. The bucket must therefore already exist and be accessible before init.
-This is adoption of existing infrastructure, not a procedure for recreating a
-deleted state bucket. Keep these buckets independent of application cleanup and
-never include this root in an apply/destroy/recreate demonstration.
-
-The canonical production prefixes are `foundation/prod`, `gke/prod`,
-`runners/prod` and `bootstrap/prod`. Bucket adoption does not migrate another
-stack's state. Check the [PROD migration status](../foundation/MIGRATION-PROD-2026-11-11.md)
-before using the foundation backend. The [earlier C02 validation](../foundation/VALIDATION-2026-11-11.md)
-is an archived snapshot of ownership before migration.
-
-References: [Terraform imports](https://developer.hashicorp.com/terraform/language/import),
-[lifecycle protection](https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle),
-[Google bucket resource](https://registry.terraform.io/providers/hashicorp/google/7.46.1/docs/resources/storage_bucket).
+Les commandes standard et prérequis sont dans le [guide commun](../README.md).

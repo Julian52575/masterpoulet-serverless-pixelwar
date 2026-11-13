@@ -1,12 +1,13 @@
 # Discord bot (C07)
 
-The Discord bot of Pixelwar: six Cloud Functions (2nd gen) that talk to each other only through events.
+The Discord bot of Pixelwar and the website's write path: seven Cloud Functions (2nd gen) that talk to each other only through events.
 This page is the reference for running, testing and deploying them.
 
 ## Architecture
 
 ```
-                                         ┌──[draw-pixel]──────────► draw-pixel ──► Firestore
+Website ─► API Gateway ─► web-proxy ─────┐
+                                         ├──[draw-pixel]──────────► draw-pixel ──► Firestore
                                          │
 Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬─(admin.*)─► admin-cmd ──► Firestore
                                          │              └─(get)─────► get-canvas ──► Firestore (read)
@@ -17,10 +18,11 @@ Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬�
                                                             snapshot-notifier ──► Discord
 ```
 
-1. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command on one of three topics: `/draw` on `draw-pixel`, `/snapshot` on `snapshot-requested`, everything else on `commands`.
-2. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions, publish events and edit the Discord reply. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
-3. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
-4. `snapshot-notifier` reacts to the new object and sends a signed link to Discord.
+1. `web-proxy` checks the website user's Discord token, the pause and the quota, then publishes `web.draw` on `draw-pixel` and answers `202`.
+2. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command on one of three topics: `/draw` on `draw-pixel`, `/snapshot` on `snapshot-requested`, everything else on `commands`.
+3. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions, publish events and edit the Discord reply. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
+4. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
+5. `snapshot-notifier` reacts to the new object and sends a signed link to Discord.
 
 Every log line is JSON on stdout (`severity`, `message`, `function`, `timestamp`), and a `correlation_id` created by the proxy follows each command through every service. In Cloud Logging, filter with `jsonPayload.correlation_id="<id>"`.
 
@@ -49,6 +51,7 @@ Each service is an HTTP Cloud Function built with `@google-cloud/functions-frame
 | get-canvas | `get-canvas/` | `getCanvas` |
 | snapshot-worker | `snapshot-worker/` | `snapshotWorker` |
 | snapshot-notifier | `snapshot-notifier/` | `snapshotNotifier` |
+| web-proxy | `web-proxy/` | `webProxy` |
 
 Deploy from the service folder (the `.gcloudignore` keeps tests and local files out of the upload):
 
@@ -114,6 +117,30 @@ Every message is checked against the admin allow-list before anything runs: a no
 
 Some of its files are shared with other services (see *Development*).
 
+### web-proxy
+
+| | |
+|---|---|
+| Trigger | `POST /pixels` and `POST /brush` (with or without an `/api` prefix), from the website through the API Gateway |
+| Auth | `Authorization: Bearer <Discord access token>` (OAuth2, scope `identify`), checked with `GET https://discord.com/api/v10/users/@me`; the answer is cached 5 minutes per token, keyed by a SHA-256 hash of the token |
+| Reads | `state/canvas` (pause), `limits/{user_id}` and `ratelimit/{user_id}_{minute}` (quota), never writes |
+| Publishes to | `draw-pixel` (`web.draw`, attributes `type`, `source`, `correlation_id`) |
+| Env | `DRAW_TOPIC` (required) |
+| Needs | `roles/datastore.viewer`, `roles/pubsub.publisher` on `draw-pixel`; outbound HTTPS to `discord.com` |
+
+Bodies: `{ x, y, color }` for `/pixels`, `{ x, y, color, size }` for `/brush` (a square of `size` 1 to 16 around the point, clipped to the grid). `color` is a palette name or a hex code. The author always comes from the token: an `author` field in the body is ignored.
+
+| Status | When |
+|---|---|
+| `202 { accepted }` | queued; `accepted` is the number of pixels that fit in the remaining quota |
+| `400 { error }` | invalid JSON, coordinates, color or size, or a body over 1 KB |
+| `401` | missing token, or a token Discord refuses |
+| `423` | drawing is paused |
+| `429 { limit, retry_after }` | quota used up this minute (also a `Retry-After` header) |
+| `503` | Discord could not be reached to check the token |
+
+Every answer carries an `x-correlation-id` header, which is also the `request_id` and `correlation_id` of the published event. The pause and quota checks are a fast answer for the user: `draw-pixel` checks them again in its transaction and stays the authority. The proxy does not answer CORS preflights: the website must be served from the same origin as the API.
+
 ### snapshot-worker
 
 | | |
@@ -137,7 +164,7 @@ The signed URL and the interaction token are never logged.
 
 | Topic | Message `type` | Producer | Consumer |
 |---|---|---|---|
-| `draw-pixel` | `draw` | discord-proxy | draw-pixel |
+| `draw-pixel` | `draw`, `web.draw` | discord-proxy, web-proxy | draw-pixel |
 | `commands` | `get`, `admin.pause`, `admin.resume`, `admin.clear`, `admin.ratelimit` | discord-proxy | admin-cmd (`hasPrefix(attributes.type, "admin.")`), get-canvas (`attributes.type = "get"`) |
 | `pixel-events` | `pixel.processed`, `pixels.processed`, `canvas.paused`, `canvas.resumed`, `canvas.cleared` | draw-pixel, admin-cmd | the web side (real time) |
 | `snapshot-requested` | `snapshot.requested` | discord-proxy | snapshot-worker |
@@ -177,8 +204,9 @@ What the Terraform has to provide for the bot:
 - An Eventarc trigger on that bucket → snapshot-notifier. The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
 - The secret holding the Discord public key.
 - One service account per service, with the roles listed above.
-- Six Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy is reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
+- Seven Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy and web-proxy are reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
 - An API Gateway route `POST /interactions` → discord-proxy. Its URL goes in the Discord portal as *Interactions Endpoint URL*.
+- API Gateway routes `POST /api/pixels` and `POST /api/brush` → web-proxy, forwarding the `Authorization` header. A gateway quota per client is advised: each new token costs one call to Discord.
 
 ## Development
 

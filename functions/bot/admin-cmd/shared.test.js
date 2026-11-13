@@ -10,17 +10,17 @@ const read = (service, file) => fs.readFileSync(path.join(bot, service, file), "
 const SHARED = {
   "envelope.js": ["draw-pixel", "get-canvas", "snapshot-worker"],
   "discord.js": ["draw-pixel", "get-canvas", "snapshot-notifier"],
-  "fake-firestore.js": ["draw-pixel", "get-canvas", "snapshot-worker"],
-  "grid.js": ["draw-pixel", "get-canvas"],
+  "fake-firestore.js": ["draw-pixel", "get-canvas", "snapshot-worker", "web-proxy"],
+  "grid.js": ["draw-pixel", "get-canvas", "web-proxy"],
   "pixels.js": ["draw-pixel", "get-canvas"],
   "reply.js": ["draw-pixel", "get-canvas"],
-  "state.js": ["draw-pixel", "get-canvas"],
+  "state.js": ["draw-pixel", "get-canvas", "web-proxy"],
   "events.js": ["draw-pixel"],
-  "limits.js": ["draw-pixel"],
+  "limits.js": ["draw-pixel", "web-proxy"],
   "snowflake.js": ["draw-pixel"]
 };
 
-const LOGGERS = ["discord-proxy", "draw-pixel", "get-canvas", "snapshot-worker", "snapshot-notifier"];
+const LOGGERS = ["discord-proxy", "draw-pixel", "get-canvas", "snapshot-worker", "snapshot-notifier", "web-proxy"];
 
 describe("code shared with the other services", () => {
   for (const [file, services] of Object.entries(SHARED)) {

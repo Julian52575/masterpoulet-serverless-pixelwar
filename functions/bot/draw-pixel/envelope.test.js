@@ -12,7 +12,7 @@ function push(event, extra = {}) {
       messageId: "msg-1",
       publishTime: "2026-10-28T10:00:00.000Z"
     },
-    subscription: "projects/demo/subscriptions/command-worker",
+    subscription: "projects/demo/subscriptions/draw-pixel",
     deliveryAttempt: 2,
     ...extra
   });
@@ -27,7 +27,7 @@ describe("parsePushMessage", () => {
     assert.equal(result.messageId, "msg-1");
     assert.deepEqual(result.attributes, { type: "draw", correlation_id: "abc" });
     assert.equal(result.deliveryAttempt, 2);
-    assert.equal(result.subscription, "projects/demo/subscriptions/command-worker");
+    assert.equal(result.subscription, "projects/demo/subscriptions/draw-pixel");
   });
 
   test("accepts a Buffer body, as received by the HTTP server", () => {

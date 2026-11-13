@@ -1,6 +1,6 @@
 # Discord bot (C07)
 
-The Discord bot of Pixelwar: four Cloud Functions (2nd gen) that talk to each other only through events.
+The Discord bot of Pixelwar: six Cloud Functions (2nd gen) that talk to each other only through events.
 This page is the reference for running, testing and deploying them.
 
 ## Architecture
@@ -22,7 +22,7 @@ Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬�
 3. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
 4. `snapshot-notifier` reacts to the new object and sends a signed link to Discord.
 
-Every log line is JSON on stdout (`severity`, `message`, `function`, `timestamp`), and a `correlation_id` created by the proxy follows each command through all four services. In Cloud Logging, filter with `jsonPayload.correlation_id="<id>"`.
+Every log line is JSON on stdout (`severity`, `message`, `function`, `timestamp`), and a `correlation_id` created by the proxy follows each command through every service. In Cloud Logging, filter with `jsonPayload.correlation_id="<id>"`.
 
 ## Commands
 
@@ -44,7 +44,6 @@ Each service is an HTTP Cloud Function built with `@google-cloud/functions-frame
 | Service | Folder | Entry point |
 |---|---|---|
 | discord-proxy | `discord-proxy/` | `discordProxy` |
-| command-worker | `command-worker/` | `commandWorker` |
 | draw-pixel | `draw-pixel/` | `drawPixel` |
 | admin-cmd | `admin-cmd/` | `adminCmd` |
 | get-canvas | `get-canvas/` | `getCanvas` |
@@ -76,16 +75,6 @@ The gateway must forward the request body **unchanged** and the `x-signature-ed2
 
 `register-commands.js` registers the seven slash commands for one guild. Run it once per Discord application, with `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID`. The bot token is only used here, never by the running services.
 
-### command-worker
-
-| | |
-|---|---|
-| Trigger | Pub/Sub push from `commands`, `POST /` (being replaced by draw-pixel, admin-cmd and get-canvas; remove its subscription once theirs exist, or admin commands run twice) |
-| Publishes to | `pixel-events` (`pixel.processed`, `canvas.cleared`), `snapshot-requested` (`snapshot.requested`) |
-| Env | `PIXEL_EVENTS_TOPIC` (required), `SNAPSHOT_TOPIC` (required), `ADMIN_USER_IDS` and/or `ADMIN_ROLE_IDS` (comma-separated Discord ids; if both are empty every admin command is refused) |
-| Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` and `snapshot-requested` |
-| Calls | `https://discord.com/api/v10` to edit the deferred reply (no token needed: the interaction token travels in the message) |
-
 ### draw-pixel
 
 | | |
@@ -97,7 +86,7 @@ The gateway must forward the request body **unchanged** and the `x-signature-ed2
 | Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply of `/draw` (web draws never call Discord) |
 
-It applies the same rules as before: pause, per-user rate limit shared by Discord and the web, Firestore transactions and idempotency receipts. Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts.
+It applies the same rules as before: pause, per-user rate limit shared by Discord and the web, Firestore transactions and idempotency receipts. Some of its files are shared with other services (see *Development*).
 
 ### admin-cmd
 
@@ -110,7 +99,7 @@ It applies the same rules as before: pause, per-user rate limit shared by Discor
 | Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply |
 
-Every message is checked against the admin allow-list before anything runs: a normal user gets "for administrators only" and nothing is written. Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts.
+Every message is checked against the admin allow-list before anything runs: a normal user gets "for administrators only" and nothing is written. Some of its files are shared with other services (see *Development*).
 
 ### get-canvas
 
@@ -123,7 +112,7 @@ Every message is checked against the admin allow-list before anything runs: a no
 | Needs | `roles/datastore.viewer` |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply with the PNG attached |
 
-Several of its files are copies of `command-worker` files; `shared.test.js` fails if a copy drifts.
+Some of its files are shared with other services (see *Development*).
 
 ### snapshot-worker
 
@@ -150,7 +139,7 @@ The signed URL and the interaction token are never logged.
 |---|---|---|---|
 | `draw-pixel` | `draw` | discord-proxy | draw-pixel |
 | `commands` | `get`, `admin.pause`, `admin.resume`, `admin.clear`, `admin.ratelimit` | discord-proxy | admin-cmd (`hasPrefix(attributes.type, "admin.")`), get-canvas (`attributes.type = "get"`) |
-| `pixel-events` | `pixel.processed`, `canvas.cleared` | command-worker | the web side (real time) |
+| `pixel-events` | `pixel.processed`, `pixels.processed`, `canvas.paused`, `canvas.resumed`, `canvas.cleared` | draw-pixel, admin-cmd | the web side (real time) |
 | `snapshot-requested` | `snapshot.requested` | discord-proxy | snapshot-worker |
 
 `pixel.processed` carries `x`, `y`, `tile`, `color`, `author`, `author_name`, `updated_at` and `correlation_id`; its `tile` attribute allows filtered subscriptions. `canvas.cleared` carries `cleared_at` and `cleared_by`.
@@ -188,7 +177,7 @@ What the Terraform has to provide for the bot:
 - An Eventarc trigger on that bucket → snapshot-notifier. The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
 - The secret holding the Discord public key.
 - One service account per service, with the roles listed above.
-- Four Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy is reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
+- Six Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy is reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
 - An API Gateway route `POST /interactions` → discord-proxy. Its URL goes in the Discord portal as *Interactions Endpoint URL*.
 
 ## Development
@@ -200,6 +189,6 @@ npm ci
 npm test
 ```
 
-The tests use `node:test` and an in-memory Firestore, so they need no emulator or network. CI runs them for the four services, along with `npm audit` (see `.github/workflows/ci.yml`).
+The tests use `node:test` and an in-memory Firestore, so they need no emulator or network. CI runs them for every service, along with `npm audit` (see `.github/workflows/ci.yml`).
 
-`snapshot-worker` and `snapshot-notifier` keep copies of a few `command-worker` files (`envelope.js`, `png.js`, `render.js`, `logger.js`, `discord.js`, `fake-firestore.js`). Their `shared.test.js` fails if a copy drifts: change the file in `command-worker` and copy it again.
+Each Cloud Function is deployed from its own folder, so code used by several services is copied into each of them (`envelope.js`, `discord.js`, `reply.js`, `state.js`, `pixels.js`, `render.js`, `png.js`, `logger.js`...). The `SHARED` table at the top of each `shared.test.js` lists which services hold the same file; the test fails as soon as two copies differ. Change a shared file in every service that has it.

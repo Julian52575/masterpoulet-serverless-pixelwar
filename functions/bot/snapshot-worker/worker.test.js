@@ -5,7 +5,10 @@ const { InvalidRequestError } = require("./snapshot");
 
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64");
 const push = (event, deliveryAttempt = 1) =>
-  Buffer.from(JSON.stringify({ message: { data: encode(event), messageId: "m-1" }, deliveryAttempt }));
+  Buffer.from(JSON.stringify({
+    message: { data: encode(event), messageId: "m-1", publishTime: "2026-11-13T12:05:00.000Z" },
+    deliveryAttempt
+  }));
 
 const event = {
   type: "snapshot.requested",
@@ -28,6 +31,35 @@ async function captureLogs(fn) {
     err.mock.restore();
   }
 }
+
+describe("scheduled snapshots", () => {
+  test("passes the Pub/Sub message id and publish time to the snapshot", async () => {
+    const calls = [];
+    const handle = createWorker({
+      takeSnapshot: async (...args) => {
+        calls.push(args);
+        return { name: "snapshots/s.png", snapshotId: "scheduled-m-1", scheduled: true, count: 0, bytes: 1 };
+      }
+    });
+    const { result, entries } = await captureLogs(() => handle(push({ type: "snapshot.scheduled" })));
+
+    assert.equal(result.statusCode, 204);
+    assert.deepEqual(calls[0], [{ type: "snapshot.scheduled" }, { messageId: "m-1", publishTime: "2026-11-13T12:05:00.000Z" }]);
+    const stored = entries.find((e) => e.message === "snapshot stored");
+    assert.equal(stored.snapshot_id, "scheduled-m-1");
+    assert.equal(stored.correlation_id, "m-1");
+    assert.equal(stored.scheduled, true);
+  });
+
+  test("acks and logs when there was nothing new to snapshot", async () => {
+    const handle = createWorker({ takeSnapshot: async () => ({ skipped: true, snapshotId: "scheduled-m-1" }) });
+    const { result, entries } = await captureLogs(() => handle(push({ type: "snapshot.scheduled" })));
+
+    assert.equal(result.statusCode, 204);
+    assert.ok(entries.some((e) => e.message === "snapshot skipped: nothing changed" && e.snapshot_id === "scheduled-m-1"));
+    assert.ok(!entries.some((e) => e.message === "snapshot stored"));
+  });
+});
 
 describe("snapshot worker", () => {
   test("acks with 204 once the snapshot is stored, and logs where", async () => {

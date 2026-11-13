@@ -8,7 +8,12 @@ function fakeBucket(metadata) {
     signed,
     file: (name) => ({
       getMetadata: async () => [{ name, contentType: "image/png", metadata }],
-      getSignedUrl: async (options) => { signed.push({ name, options }); return [`https://signed/${name}`]; }
+      getSignedUrl: async (options) => { signed.push({ name, options }); return [`https://signed/${name}`]; },
+      download: async () => {
+        if (name === "manifests/a.json") return [Buffer.from('{"previous":null}')];
+        if (name === "manifests/down.json") throw Object.assign(new Error("503"), { code: 503 });
+        throw Object.assign(new Error("No such object"), { code: 404 });
+      }
     })
   };
 }
@@ -34,5 +39,12 @@ describe("snapshot files", () => {
       name: "snapshots/a.png",
       options: { version: "v4", action: "read", expires: 1_000_000 + 3_600_000 }
     }]);
+  });
+
+  test("reads a manifest, null when it does not exist, and lets other errors through", async () => {
+    const files = createSnapshotFiles({ bucket: fakeBucket({}) });
+    assert.deepEqual(await files.readJson("manifests/a.json"), { previous: null });
+    assert.equal(await files.readJson("manifests/gone.json"), null);
+    await assert.rejects(files.readJson("manifests/down.json"), /503/);
   });
 });

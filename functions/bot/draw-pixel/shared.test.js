@@ -16,7 +16,6 @@ const SHARED = {
   "pixels.js": ["admin-cmd", "get-canvas"],
   "reply.js": ["admin-cmd", "get-canvas"],
   "state.js": ["admin-cmd", "get-canvas", "web-proxy"],
-  "events.js": ["admin-cmd"],
   "limits.js": ["admin-cmd", "web-proxy"],
   "snowflake.js": ["admin-cmd"]
 };
@@ -40,4 +39,18 @@ describe("code shared with the other services", () => {
       );
     });
   }
+
+  test("the Firestore security rules only open what the website reads, one tile at a time", () => {
+    const rules = fs.readFileSync(path.join(bot, "..", "firestore", "firestore.rules"), "utf8");
+    const { TILE } = require("./grid");
+    const { PIXELS_COLLECTION, RATE_COLLECTION, PROCESSED_COLLECTION } = require("./pixels");
+    const { STATE_COLLECTION, CANVAS_DOC } = require("./state");
+    const { LIMITS_COLLECTION } = require("./limits");
+
+    assert.match(rules, new RegExp(`request\\.query\\.limit <= ${TILE * TILE}\\b`));
+    const opened = [...rules.matchAll(/match \/(\S+)\s*\{/g)].map((m) => m[1]).filter((p) => !p.startsWith("databases") && !p.startsWith("{"));
+    assert.deepEqual(opened.sort(), [`${PIXELS_COLLECTION}/{pixel}`, `${STATE_COLLECTION}/${CANVAS_DOC}`].sort());
+    for (const hidden of [RATE_COLLECTION, PROCESSED_COLLECTION, LIMITS_COLLECTION]) assert.ok(!rules.includes(`/${hidden}`), hidden);
+    assert.ok(!/allow[^;]*(create|update|delete|write)[^;]*:\s*if true/.test(rules), "no rule may allow a write");
+  });
 });

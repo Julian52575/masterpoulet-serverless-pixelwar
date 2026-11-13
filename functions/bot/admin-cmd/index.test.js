@@ -9,7 +9,6 @@ describe("index.js", () => {
   let baseUrl;
 
   before(async () => {
-    process.env.PIXEL_EVENTS_TOPIC = "pixel-events";
     process.env.ADMIN_USER_IDS = "999";
     require("./index");
     const { getTestServer } = require("@google-cloud/functions-framework/testing");
@@ -37,19 +36,10 @@ describe("index.js", () => {
 });
 
 describe("index.js startup", () => {
-  test("refuses to load without the pixel events topic", () => {
-    const result = spawnSync(process.execPath, ["-e", "require('./index')"], {
-      cwd: __dirname,
-      env: { PATH: process.env.PATH, ADMIN_USER_IDS: "999" }
-    });
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr.toString(), /PIXEL_EVENTS_TOPIC is not configured/);
-  });
-
   test("refuses to load when an admin id is not a Discord id", () => {
     const result = spawnSync(process.execPath, ["-e", "require('./index')"], {
       cwd: __dirname,
-      env: { PATH: process.env.PATH, PIXEL_EVENTS_TOPIC: "pixel-events", ADMIN_USER_IDS: "alice" }
+      env: { PATH: process.env.PATH, ADMIN_USER_IDS: "alice" }
     });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr.toString(), /ADMIN_USER_IDS contains invalid Discord ids: alice/);

@@ -1,5 +1,5 @@
 const { createReplier } = require("./reply");
-const { renderCanvas } = require("./render");
+const { log } = require("./logger");
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const EMPTY_CANVAS = "🖼️ The canvas is empty for now.";
@@ -8,12 +8,22 @@ const canvasImage = ({ count, region, scale }) =>
   (scale > 1 ? `, image scaled down ${scale} times to fit in Discord.` : ".");
 const imageName = (at) => `pixelwar-${at.toISOString().replace(/[:.]/g, "-")}.png`;
 
-function createHandlers({ canvas, discord, now = () => Date.now() }) {
+function createHandlers({ view, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });
 
   return {
     get: async (event) => {
-      const image = renderCanvas(await canvas.visiblePixels());
+      const started = Date.now();
+      const image = await view();
+      log.info("canvas rendered", {
+        correlation_id: event.correlation_id,
+        source: image.source,
+        snapshot: image.snapshot,
+        pixel_count: image.count,
+        pixels_read: image.pixelsRead,
+        changed_tiles: image.changedTiles,
+        duration_ms: Date.now() - started
+      });
       const content = image.count === 0 ? EMPTY_CANVAS : canvasImage(image);
       await reply(event, content, [{ name: imageName(new Date(now())), data: image.png, contentType: "image/png" }]);
     }

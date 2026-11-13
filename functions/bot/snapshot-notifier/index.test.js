@@ -35,6 +35,22 @@ describe("index.js", () => {
     assert.equal(res.status, 204);
   });
 
+  test("acks a bucket Pub/Sub notification about a tile, through the real framework", async () => {
+    const res = await fetch(baseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: {
+          attributes: { eventType: "OBJECT_FINALIZE", bucketId: process.env.SNAPSHOT_BUCKET, objectId: "tiles/0_0/a.png" },
+          data: "",
+          messageId: "1"
+        },
+        subscription: "projects/demo/subscriptions/snapshot-created"
+      })
+    });
+    assert.equal(res.status, 204);
+  });
+
   test("answers 405 to other methods", async () => {
     assert.equal((await fetch(baseUrl)).status, 405);
   });

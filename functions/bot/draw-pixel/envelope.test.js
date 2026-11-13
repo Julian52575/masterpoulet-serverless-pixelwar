@@ -25,6 +25,7 @@ describe("parsePushMessage", () => {
 
     assert.deepEqual(result.event, event);
     assert.equal(result.messageId, "msg-1");
+    assert.equal(result.publishTime, "2026-10-28T10:00:00.000Z");
     assert.deepEqual(result.attributes, { type: "draw", correlation_id: "abc" });
     assert.equal(result.deliveryAttempt, 2);
     assert.equal(result.subscription, "projects/demo/subscriptions/draw-pixel");

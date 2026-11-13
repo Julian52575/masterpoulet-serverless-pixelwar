@@ -1,14 +1,23 @@
-const { test, describe } = require("node:test");
+const { test, describe, mock } = require("node:test");
 const assert = require("node:assert/strict");
 const { createHandlers, EMPTY_CANVAS, canvasImage, imageName } = require("./handlers");
 const { SIGNATURE } = require("./png");
 
+const { createCanvasView } = require("./view");
+const { createCanvasReader } = require("./canvas");
+const { fakeFirestore } = require("./fake-firestore");
+
 function make(pixels) {
   const replies = [];
-  const canvas = { visiblePixels: async () => pixels };
+  const db = fakeFirestore();
+  pixels.forEach((p, i) => db.docs.set(`pixels/${i}`, p));
+  const view = createCanvasView({
+    canvas: createCanvasReader({ db }),
+    store: { latestManifest: async () => null, readTile: async () => null }
+  });
   const discord = { editOriginal: async (event, message, files) => replies.push({ message, files }) };
-  const handlers = createHandlers({ canvas, discord, now: () => Date.UTC(2026, 9, 29, 12, 30, 5, 123) });
-  return { get: handlers.get, replies };
+  const handlers = createHandlers({ view, discord, now: () => Date.UTC(2026, 9, 29, 12, 30, 5, 123) });
+  return { get: async (event) => { const out = mock.method(console, "log", () => {}); try { await handlers.get(event); } finally { out.mock.restore(); } }, replies };
 }
 
 const event = { type: "get", user_id: "111", application_id: "123456789012345678", interaction_token: "tok" };
@@ -20,7 +29,7 @@ describe("get handler", () => {
     await get(event);
 
     const [{ message, files }] = replies;
-    assert.equal(message.content, "🖼️ Current canvas: 2 pixels, from (10, 20) to (12, 25).");
+    assert.equal(message.content, "🖼️ Current canvas: 2 pixels, from (0, 0) to (255, 255).");
     assert.equal(files.length, 1);
     assert.equal(files[0].contentType, "image/png");
     assert.equal(files[0].name, "pixelwar-2026-10-29T12-30-05-123Z.png");

@@ -17,11 +17,12 @@ function createWorker({ takeSnapshot }) {
       return { statusCode: REJECT };
     }
 
-    const { event, messageId, deliveryAttempt } = message;
+    const { event, messageId, publishTime, deliveryAttempt } = message;
     const fields = {
-      correlation_id: event.correlation_id,
+      correlation_id: event.correlation_id ?? messageId,
       snapshot_id: event.snapshot_id,
       requested_by: event.requested_by,
+      event_type: event.type,
       message_id: messageId,
       delivery_attempt: deliveryAttempt
     };
@@ -30,9 +31,15 @@ function createWorker({ takeSnapshot }) {
     const started = Date.now();
 
     try {
-      const result = await takeSnapshot(event);
+      const result = await takeSnapshot(event, { messageId, publishTime });
+      if (result.skipped) {
+        log.info("snapshot skipped: nothing changed", { ...fields, snapshot_id: result.snapshotId, duration_ms: Date.now() - started });
+        return { statusCode: ACK };
+      }
       log.info("snapshot stored", {
         ...fields,
+        snapshot_id: result.snapshotId ?? fields.snapshot_id,
+        scheduled: result.scheduled,
         object: result.name,
         pixel_count: result.count,
         mode: result.mode,

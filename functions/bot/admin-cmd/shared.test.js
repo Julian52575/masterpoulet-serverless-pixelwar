@@ -15,7 +15,6 @@ const SHARED = {
   "pixels.js": ["draw-pixel", "get-canvas"],
   "reply.js": ["draw-pixel", "get-canvas"],
   "state.js": ["draw-pixel", "get-canvas", "web-proxy"],
-  "events.js": ["draw-pixel"],
   "limits.js": ["draw-pixel", "web-proxy"],
   "snowflake.js": ["draw-pixel"]
 };

@@ -14,19 +14,17 @@ const INVALID_LIMIT = `❌ The limit must be a whole number between ${MIN_RATE_L
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const cleared = (deleted) => `🧹 The canvas was cleared (${plural(deleted, "pixel")} removed).`;
 
-function createHandlers({ state, limits, events, cleaner, discord, now = () => Date.now() }) {
+function createHandlers({ state, limits, cleaner, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });
 
   return {
     "admin.pause": async (event) => {
       await state.setPaused(true, event.user_id);
-      await events.pauseChanged({ paused: true, by: event.user_id, at: new Date(now()), correlationId: event.correlation_id });
       await reply(event, PAUSED);
     },
 
     "admin.resume": async (event) => {
       await state.setPaused(false, event.user_id);
-      await events.pauseChanged({ paused: false, by: event.user_id, at: new Date(now()), correlationId: event.correlation_id });
       await reply(event, RESUMED);
     },
 
@@ -34,7 +32,6 @@ function createHandlers({ state, limits, events, cleaner, discord, now = () => D
       const clearedAt = snowflakeTime(event.interaction_id) ?? new Date(now());
       await state.setCleared(clearedAt, event.user_id);
       const deleted = await cleaner.clearBefore(clearedAt);
-      await events.canvasCleared({ clearedAt, clearedBy: event.user_id, correlationId: event.correlation_id });
       await reply(event, cleared(deleted));
     },
 

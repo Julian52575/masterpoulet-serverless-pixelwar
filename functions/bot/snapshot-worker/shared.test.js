@@ -8,6 +8,10 @@ const bot = path.join(__dirname, "..");
 const read = (service, file) => fs.readFileSync(path.join(bot, service, file), "utf8");
 
 const SHARED = {
+  "tiles.js": ["get-canvas"],
+  "overview.js": ["get-canvas"],
+  "compose.js": ["get-canvas"],
+  "config.js": ["get-canvas"],
   "envelope.js": ["admin-cmd", "draw-pixel", "get-canvas"],
   "fake-firestore.js": ["admin-cmd", "draw-pixel", "get-canvas", "web-proxy"],
   "png.js": ["get-canvas"]

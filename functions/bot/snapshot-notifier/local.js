@@ -2,7 +2,7 @@ const http = require("node:http");
 const { Storage } = require("@google-cloud/storage");
 const { createNotifier } = require("./notifier");
 const { createSnapshotFiles } = require("./links");
-const { createDiscordClient } = require("./discord");
+const { createDiscordClient, createChannelWebhook } = require("./discord");
 const { loadConfig } = require("./config");
 const { log } = require("./logger");
 
@@ -20,7 +20,9 @@ const handle = createNotifier({
   files: createSnapshotFiles({ bucket: storage.bucket(config.bucket) }),
   discord: createDiscordClient(),
   bucket: config.bucket,
-  ttlMinutes: config.ttlMinutes
+  ttlMinutes: config.ttlMinutes,
+  webhook: config.webhookUrl ? createChannelWebhook({ url: config.webhookUrl }) : null,
+  postEveryMinutes: config.postEveryMinutes
 });
 
 const server = http.createServer((req, res) => {

@@ -10,7 +10,7 @@ const drawn = ({ x, y, color }, remaining) =>
 const rateLimited = (limit, seconds) =>
   `⏳ You reached your limit of ${plural(limit, "pixel")} per minute. Try again in ${seconds} s.`;
 
-function createHandlers({ limits, pixels, events, discord, now = () => Date.now() }) {
+function createHandlers({ limits, pixels, discord, now = () => Date.now() }) {
   const reply = createReplier({ discord });
 
   return {
@@ -33,15 +33,6 @@ function createHandlers({ limits, pixels, events, discord, now = () => Date.now(
       if (result.status === "paused") return reply(event, DRAW_PAUSED);
       if (result.status === "rate_limited") return reply(event, rateLimited(result.limit, result.retryAfterSeconds));
 
-      if (!result.superseded) {
-        await events.pixelProcessed({
-          ...pixel,
-          author: event.user_id,
-          authorName: event.username,
-          updatedAt: drawnAt,
-          correlationId: event.correlation_id
-        });
-      }
       await reply(event, drawn(pixel, result.remaining));
     },
 
@@ -49,17 +40,6 @@ function createHandlers({ limits, pixels, events, discord, now = () => Date.now(
       const request = readWebDraw(event);
       const limit = await limits.limitFor(request.author);
       const result = await pixels.drawArea({ ...request, limit });
-
-      for (const cells of result.chunks) {
-        await events.pixelsProcessed({
-          cells,
-          color: request.color,
-          author: request.author,
-          authorName: request.authorName,
-          updatedAt: request.drawnAt,
-          correlationId: event.correlation_id
-        });
-      }
 
       log.info("web draw applied", {
         correlation_id: event.correlation_id,

@@ -28,6 +28,7 @@ function parsePushMessage(rawBody) {
   return {
     event,
     messageId: message.messageId ?? message.message_id ?? null,
+    publishTime: message.publishTime ?? message.publish_time ?? null,
     attributes: message.attributes ?? {},
     deliveryAttempt: envelope.deliveryAttempt ?? null,
     subscription: envelope.subscription ?? null

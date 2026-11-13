@@ -2,7 +2,6 @@ const { test, describe, mock } = require("node:test");
 const assert = require("node:assert/strict");
 const { readWebDraw, cellsOf, InvalidCommandError, MAX_AREA } = require("./draw");
 const { createPixelStore, PROCESSED_COLLECTION } = require("./pixels");
-const { createPixelEvents } = require("./events");
 const { createHandlers } = require("./handlers");
 const { createWorker } = require("./worker");
 const { fakeFirestore } = require("./fake-firestore");
@@ -224,44 +223,6 @@ describe("drawArea", () => {
   });
 });
 
-describe("web events", () => {
-  function fakeTopic() {
-    const sent = [];
-    return { sent, publishMessage: async (message) => { sent.push(message); return "msg-1"; } };
-  }
-
-  test("pixels.processed lists the changed pixels and their tiles once", async () => {
-    const topic = fakeTopic();
-    await createPixelEvents({ topic }).pixelsProcessed({
-      cells: [{ x: 255, y: 0 }, { x: 256, y: 0 }, { x: 257, y: 0 }],
-      color: "#e50000",
-      author: "111",
-      authorName: "Alice",
-      updatedAt: new Date(DRAWN_AT),
-      correlationId: "corr-web"
-    });
-
-    const pixel = (x) => ({ x, y: 0, color: "#e50000", author: "111", author_name: "Alice", updated_at: DRAWN_AT });
-    assert.deepEqual(topic.sent[0], {
-      json: { type: "pixels.processed", pixels: [pixel(255), pixel(256), pixel(257)], tiles: ["0_0", "1_0"], correlation_id: "corr-web" },
-      attributes: { type: "pixels.processed", correlation_id: "corr-web" }
-    });
-  });
-
-  test("announces a pause and a resume with who did it and when", async () => {
-    const topic = fakeTopic();
-    const events = createPixelEvents({ topic });
-    await events.pauseChanged({ paused: true, by: "999", at: new Date(DRAWN_AT), correlationId: "corr-1" });
-    await events.pauseChanged({ paused: false, by: "999", at: new Date(DRAWN_AT) });
-
-    assert.deepEqual(topic.sent.map((m) => m.json), [
-      { type: "canvas.paused", by: "999", at: DRAWN_AT, correlation_id: "corr-1" },
-      { type: "canvas.resumed", by: "999", at: DRAWN_AT, correlation_id: null }
-    ]);
-    assert.deepEqual(topic.sent.map((m) => m.attributes.type), ["canvas.paused", "canvas.resumed"]);
-  });
-});
-
 describe("web.draw handler", () => {
   function make({ result } = {}) {
     const calls = [];
@@ -272,24 +233,21 @@ describe("web.draw handler", () => {
         return result ?? { status: "drawn", requested: 4, granted: 4, chunks: [[{ x: 10, y: 20 }], [{ x: 11, y: 20 }]] };
       }
     };
-    const events = { pixelsProcessed: async (event) => calls.push({ publish: event.cells, author: event.author, correlationId: event.correlationId }) };
     const discord = { editOriginal: async () => calls.push("discord") };
-    return { handle: createHandlers({ limits, pixels, events, discord })["web.draw"], calls };
+    return { handle: createHandlers({ limits, pixels, discord })["web.draw"], calls };
   }
 
-  test("reads the user's limit, draws, then announces each written chunk", async () => {
+  test("reads the user's limit, then draws in Firestore (the website sees it through its listeners)", async () => {
     const { handle, calls } = make();
     await silenced(() => handle(webDraw()));
 
     assert.deepEqual(calls, [
       { limitFor: "111" },
-      { drawArea: { cells: 4, limit: 20, requestId: "6f1c0d0e-4a51-4d2b-9a43-3c1f7d4a2b10" } },
-      { publish: [{ x: 10, y: 20 }], author: "111", correlationId: "corr-web" },
-      { publish: [{ x: 11, y: 20 }], author: "111", correlationId: "corr-web" }
+      { drawArea: { cells: 4, limit: 20, requestId: "6f1c0d0e-4a51-4d2b-9a43-3c1f7d4a2b10" } }
     ]);
   });
 
-  test("announces nothing when nothing was written, and never calls Discord", async () => {
+  test("never calls Discord, even when nothing was written", async () => {
     const { handle, calls } = make({ result: { status: "paused", requested: 4, granted: 0, chunks: [] } });
     await silenced(() => handle(webDraw()));
 

@@ -1,5 +1,6 @@
 const { test, describe, before, after } = require("node:test");
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
 
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64");
 
@@ -8,6 +9,7 @@ describe("index.js", () => {
   let baseUrl;
 
   before(async () => {
+    process.env.SNAPSHOT_BUCKET = "teamx-dev-snapshots";
     require("./index");
     const { getTestServer } = require("@google-cloud/functions-framework/testing");
     server = getTestServer("getCanvas");
@@ -30,5 +32,16 @@ describe("index.js", () => {
 
   test("answers 405 to other methods", async () => {
     assert.equal((await fetch(baseUrl)).status, 405);
+  });
+});
+
+describe("index.js startup", () => {
+  test("refuses to load without SNAPSHOT_BUCKET", () => {
+    const result = spawnSync(process.execPath, ["-e", "require('./index')"], {
+      cwd: __dirname,
+      env: { PATH: process.env.PATH }
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr.toString(), /SNAPSHOT_BUCKET is not configured/);
   });
 });

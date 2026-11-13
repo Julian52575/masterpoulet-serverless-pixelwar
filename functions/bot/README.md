@@ -11,11 +11,11 @@ Website ─► API Gateway ─► web-proxy ─────┐
                                          ├──[draw-pixel]──────────► draw-pixel ──► Firestore
                                          │
 Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬─(admin.*)─► admin-cmd ──► Firestore
-                                         │              └─(get)─────► get-canvas ──► Firestore (read)
+                                         │              └─(get)─────► get-canvas ──► bucket + Firestore (read)
                                          │
                                          └──[snapshot-requested]──► snapshot-worker ──► bucket (tiles, manifest, overview)
-                                                                    │ object.finalized (Eventarc)
-                                                                    ▼
+                                                 ▲                  │ [snapshot-created] (OnObjectCreated)
+               Cloud Scheduler (every 5 min) ────┘                  ▼
                                                             snapshot-notifier ──► Discord
 ```
 
@@ -24,7 +24,7 @@ Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬�
 3. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command on one of three topics: `/draw` on `draw-pixel`, `/snapshot` on `snapshot-requested`, everything else on `commands`.
 4. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions, publish events and edit the Discord reply. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
 5. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
-6. `snapshot-notifier` reacts to the new object and sends a signed link to Discord.
+6. `snapshot-notifier` receives the bucket's Pub/Sub notification for the new overview image and sends a signed link to Discord.
 
 Every log line is JSON on stdout (`severity`, `message`, `function`, `timestamp`), and a `correlation_id` created by the proxy follows each command through every service. In Cloud Logging, filter with `jsonPayload.correlation_id="<id>"`.
 
@@ -87,9 +87,9 @@ The gateway must forward the request body **unchanged** and the `x-signature-ed2
 |---|---|
 | Trigger | Pub/Sub push from `draw-pixel`, `POST /` |
 | Handles | `draw` (Discord `/draw`) and `web.draw` (website pixel and brush); any other type answers `400` and goes to the dead-letter topic |
-| Publishes to | `pixel-events` (`pixel.processed`, `pixels.processed`) |
-| Env | `PIXEL_EVENTS_TOPIC` (required) |
-| Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` |
+| Publishes to | nothing: the website sees new pixels through its Firestore listeners |
+| Env | none |
+| Needs | `roles/datastore.user` |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply of `/draw` (web draws never call Discord) |
 
 It applies the same rules as before: pause, per-user rate limit shared by Discord and the web, Firestore transactions and idempotency receipts. Some of its files are shared with other services (see *Development*).
@@ -100,9 +100,9 @@ It applies the same rules as before: pause, per-user rate limit shared by Discor
 |---|---|
 | Trigger | Pub/Sub push from `commands`, through a subscription filtered on admin commands (`hasPrefix(attributes.type, "admin.")`), `POST /` |
 | Handles | `admin.pause`, `admin.resume`, `admin.clear`, `admin.ratelimit`; any other type answers `400` and goes to the dead-letter topic |
-| Publishes to | `pixel-events` (`canvas.paused`, `canvas.resumed`, `canvas.cleared`) |
-| Env | `PIXEL_EVENTS_TOPIC` (required), `ADMIN_USER_IDS` and/or `ADMIN_ROLE_IDS` (comma-separated Discord ids; if both are empty every command is refused) |
-| Needs | `roles/datastore.user`, `roles/pubsub.publisher` on `pixel-events` |
+| Publishes to | nothing: the website sees `paused` and `cleared_at` through its listener on `state/canvas` |
+| Env | `ADMIN_USER_IDS` and/or `ADMIN_ROLE_IDS` (comma-separated Discord ids; if both are empty every command is refused) |
+| Needs | `roles/datastore.user` |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply |
 
 Every message is checked against the admin allow-list before anything runs: a normal user gets "for administrators only" and nothing is written. Some of its files are shared with other services (see *Development*).
@@ -113,12 +113,14 @@ Every message is checked against the admin allow-list before anything runs: a no
 |---|---|
 | Trigger | Pub/Sub push from `commands`, through a subscription filtered on `/get` (`attributes.type = "get"`), `POST /` |
 | Handles | `get` only, for every user; any other type answers `400` and goes to the dead-letter topic |
-| Reads | `state/canvas` and the visible pixels in Firestore |
-| Env | none |
-| Needs | `roles/datastore.viewer` |
+| Reads | `manifests/latest.json` and its tiles in the snapshot bucket, then `state/canvas` and only the pixels written since that snapshot in Firestore |
+| Env | `SNAPSHOT_BUCKET` (required, the same bucket as snapshot-worker), `STORAGE_API_ENDPOINT` (local emulator only) |
+| Needs | `roles/datastore.viewer`, `roles/storage.objectViewer` on the snapshot bucket (it never writes) |
 | Calls | `https://discord.com/api/v10` to edit the deferred reply with the PNG attached |
 
 Some of its files are shared with other services (see *Development*).
+
+`/get` no longer reads the whole canvas: it starts from the latest snapshot (task 9, refreshed every 5 minutes by the scheduler) and paints on its tiles only the pixels with `written_at` after that snapshot, with the same 2-minute margin. The logic is in `compose.js`, shared with snapshot-worker. It falls back to reading every visible pixel from Firestore when there is no snapshot yet, when the canvas was cleared after the latest snapshot, or when a tile is missing. Each `/get` logs `source` (`snapshot` or `firestore`), `pixels_read` and `changed_tiles`. The image is cropped to the painted tiles, so the area in the reply is given in whole tiles.
 
 ### web-proxy
 
@@ -165,7 +167,7 @@ The website keeps the token in memory (or `sessionStorage`) and sends it as `Aut
 
 | | |
 |---|---|
-| Trigger | Pub/Sub push from `snapshot-requested`, `POST /` |
+| Trigger | Pub/Sub push from `snapshot-requested`, `POST /`: `snapshot.requested` from discord-proxy, `snapshot.scheduled` from Cloud Scheduler |
 | Reads | `state/canvas` (`cleared_at`) and `pixels` in Firestore; the latest manifest and the tiles it needs in the bucket |
 | Writes | the changed tiles, a manifest and the overview image (see below) |
 | Env | `SNAPSHOT_BUCKET` (required), `STORAGE_API_ENDPOINT` (local emulator only) |
@@ -187,17 +189,23 @@ The first snapshot, a snapshot after `/admin clear` (the manifest remembers `cle
 | `manifests/latest.json` | a copy of the newest manifest |
 | `snapshots/<ISO time>_<id>.png` | the overview image, written **last**; its metadata (interaction token, `pixel_count`, `manifest`) is what snapshot-notifier uses |
 
+**Scheduled snapshots.** A Cloud Scheduler job publishes `{"type":"snapshot.scheduled"}` on `snapshot-requested` every 5 minutes. The message is always the same, so the snapshot id and time come from the Pub/Sub message itself: `scheduled-<messageId>` and its `publishTime` (a retried delivery keeps both, so it rewrites the same objects). When nothing was written since the previous snapshot, a scheduled run writes nothing and only logs `snapshot skipped: nothing changed`; the first run, a run after `/admin clear`, and every `/snapshot` from Discord always produce a snapshot. A scheduled overview has `requested_by: "scheduler"` and no interaction token, so snapshot-notifier posts nothing for it.
+
 Tiles still referenced by a manifest must not be deleted: a lifecycle rule may only remove `tiles/` objects older than the oldest manifest kept. A missing tile is not fatal: the worker logs a warning and rebuilds from Firestore.
 
 ### snapshot-notifier
 
 | | |
 |---|---|
-| Trigger | Eventarc `google.cloud.storage.object.v1.finalized` on the snapshot bucket, `POST /` |
-| Env | `SNAPSHOT_BUCKET` (required, other buckets and objects outside `snapshots/` are ignored), `SIGNED_URL_TTL_MINUTES` (default `60`, max `10080`), `STORAGE_API_ENDPOINT` (local emulator only) |
+| Trigger | Pub/Sub push from `snapshot-created`, the topic the snapshot bucket notifies on each new object (`OBJECT_FINALIZE`), `POST /`. An Eventarc `google.cloud.storage.object.v1.finalized` CloudEvent is still accepted |
+| Env | `SNAPSHOT_BUCKET` (required, other buckets and objects outside `snapshots/` are ignored), `SIGNED_URL_TTL_MINUTES` (default `60`, max `10080`), `SNAPSHOT_WEBHOOK_URL` (optional, a Discord channel webhook, **from Secret Manager**), `SCHEDULED_POST_EVERY_MINUTES` (default `60`, from `5` to `10080`), `STORAGE_API_ENDPOINT` (local emulator only) |
 | Needs | `roles/storage.objectViewer` on the bucket, `roles/iam.serviceAccountTokenCreator` **on its own service account** (signing a V4 URL on Cloud Run uses `signBlob`) |
 
 The signed URL and the interaction token are never logged.
+
+A Cloud Storage notification carries the object in its attributes (`eventType`, `bucketId`, `objectId`), so any payload format works (`JSON_API_V1` or `NONE`). Only `OBJECT_FINALIZE` events for `snapshots/*.png` in `SNAPSHOT_BUCKET` do something; everything else (tiles, manifests, deletions, other buckets) is acked and ignored, and a malformed message answers `400` so it ends in the dead-letter topic. A redelivered notification edits the same Discord message again with a new link, which is harmless.
+
+**Scheduled snapshots** (`requested_by: "scheduler"`, no interaction token) are posted in a channel through `SNAPSHOT_WEBHOOK_URL`: a webhook can only post in its own channel, so it gives far less power than the bot token. To keep the channel readable, only the **first scheduled snapshot of each `SCHEDULED_POST_EVERY_MINUTES` period** is posted (by default, at most one per clock hour); the others are stored but not announced. The notifier finds the previous scheduled snapshot by following the manifests' `previous` links (a Discord `/snapshot` in between does not count). Since a scheduled run that sees no change is skipped, an hour without drawing posts nothing. Without a webhook nothing is posted. A webhook post cannot be made idempotent, so in the rare case where Pub/Sub redelivers after a successful post, the channel gets the link twice. The webhook URL contains its token and is never logged.
 
 ## Messaging contract
 
@@ -205,10 +213,10 @@ The signed URL and the interaction token are never logged.
 |---|---|---|---|
 | `draw-pixel` | `draw`, `web.draw` | discord-proxy, web-proxy | draw-pixel |
 | `commands` | `get`, `admin.pause`, `admin.resume`, `admin.clear`, `admin.ratelimit` | discord-proxy | admin-cmd (`hasPrefix(attributes.type, "admin.")`), get-canvas (`attributes.type = "get"`) |
-| `pixel-events` | `pixel.processed`, `pixels.processed`, `canvas.paused`, `canvas.resumed`, `canvas.cleared` | draw-pixel, admin-cmd | the web side (real time) |
-| `snapshot-requested` | `snapshot.requested` | discord-proxy | snapshot-worker |
+| `snapshot-requested` | `snapshot.requested`, `snapshot.scheduled` | discord-proxy, Cloud Scheduler | snapshot-worker |
+| `snapshot-created` | Cloud Storage notification `OBJECT_FINALIZE` (attributes `bucketId`, `objectId`) | the snapshot bucket | snapshot-notifier |
 
-`pixel.processed` carries `x`, `y`, `tile`, `color`, `author`, `author_name`, `updated_at` and `correlation_id`; its `tile` attribute allows filtered subscriptions. `canvas.cleared` carries `cleared_at` and `cleared_by`.
+There is no `pixel-events` topic any more: real time for the website comes from Firestore listeners (see *Firestore*), so the workers write to Firestore and publish nothing.
 
 Push endpoints reply:
 
@@ -222,31 +230,51 @@ Every command is idempotent: a receipt in `processed/{interaction_id}` stops a r
 
 ## Firestore
 
-| Document | Content |
-|---|---|
-| `state/canvas` | `paused`, `cleared_at`, `cleared_by`, `updated_by`, `updated_at` |
-| `pixels/{x}_{y}` | `x`, `y`, `tile`, `color`, `author`, `author_name`, `updated_at` (when it was drawn), `written_at` (when draw-pixel stored it, used by incremental snapshots) (grid 10000×10000, tiles of 256) |
-| `limits/{user_id}` | per-user draws per minute |
-| `ratelimit/{user_id}_{minute}` | fixed-window counter, `expires_at` |
-| `processed/{interaction_id}` | idempotency receipt, `expires_at` |
+| Document | Content | Website |
+|---|---|---|
+| `state/canvas` | `paused`, `cleared_at`, `cleared_by`, `updated_by`, `updated_at` | read, live |
+| `pixels/{x}_{y}` | `x`, `y`, `tile` (`"<tx>_<ty>"`), `color` (`#rrggbb`), `author` (Discord id), `author_name`, `updated_at` (when it was drawn), `written_at` (when draw-pixel stored it) (grid 10000×10000, tiles of 256) | read, live |
+| `limits/{user_id}` | per-user draws per minute | hidden |
+| `ratelimit/{user_id}_{minute}` | fixed-window counter, `expires_at` | hidden |
+| `processed/{interaction_id}` | idempotency receipt, `expires_at` | hidden |
 
-Only single-field indexes are used. TTL policies on `ratelimit.expires_at` and `processed.expires_at` clean old documents.
+Only single-field indexes are used (including `pixels.tile` and `pixels.written_at`, created automatically). TTL policies on `ratelimit.expires_at` and `processed.expires_at` clean old documents.
+
+### Real time for the website (Firestore listeners)
+
+The website gets live updates by **listening to Firestore** with the Firebase web SDK, as on the team diagram ("event streaming on NoSQL data"): no polling, no WebSocket service, and only changed pixels are sent after the first load. All writes still go through `web-proxy` → `draw-pixel`; the browser can never write.
+
+1. `onSnapshot(doc(db, "state", "canvas"))`: show the pause banner from `paused`; when `cleared_at` moves forward, wipe the local canvas and ignore any pixel with `updated_at <= cleared_at` (admin-cmd deletes them in batches, so `removed` changes may still arrive for a while).
+2. For each **visible tile**: `onSnapshot(query(collection(db, "pixels"), where("tile", "==", "<tx>_<ty>"), limit(65536)))`. The first callback gives the whole tile (chunked loading); the next ones only the `added`, `modified` and `removed` pixels. Stop the listener when the tile leaves the screen, and keep at most a few dozen listeners.
+3. Pixel inspection: `getDoc(doc(db, "pixels", "<x>_<y>"))` gives the color, `author_name`, `author` and `updated_at`.
+4. After a network cut the SDK reconnects and replays what was missed by itself.
+
+The security rules are in [`../firestore/firestore.rules`](../firestore/firestore.rules):
+
+- `pixels/*`: anyone may read one pixel, or **list with a `limit` of at most 65536** (one full tile), so nobody can stream the whole 10000×10000 canvas in one query.
+- `state/canvas`: anyone may read it.
+- everything else (`limits`, `ratelimit`, `processed`, ...): no access at all.
+- no write from a browser, anywhere. The functions use service accounts, which are not subject to these rules.
+
+To test them, with Java and the Firebase CLI installed: `firebase emulators:start --only firestore` with this file, then try the queries above (allowed) and a write, a `list` without limit, or a read of `limits/1` (refused).
 
 ## Infrastructure checklist
 
 What the Terraform has to provide for the bot:
 
 - Firestore (native mode), with the two TTL policies above.
-- Topics `draw-pixel`, `commands`, `pixel-events` and `snapshot-requested`, each with a dead-letter topic.
+- Firebase enabled on the project, with a Web app (its `apiKey`, `projectId` and `appId` go in the frontend build), and `functions/firestore/firestore.rules` deployed as the Firestore ruleset (`google_firebaserules_ruleset` + `google_firebaserules_release` named `cloud.firestore`).
+- Topics `draw-pixel`, `commands` and `snapshot-requested`, each with a dead-letter topic. The old `pixel-events` topic, its subscriptions and the `PIXEL_EVENTS_TOPIC` variables can be removed.
 - Push subscriptions `draw-pixel` → draw-pixel, `commands` → admin-cmd (filter `hasPrefix(attributes.type, "admin.")`), `commands` → get-canvas (filter `attributes.type = "get"`) and `snapshot-requested` → snapshot-worker, authenticated with OIDC (a service account with `roles/run.invoker`), with an ack deadline of about 60 s and a dead-letter policy.
+- A Cloud Scheduler job, schedule `*/5 * * * *`, with a Pub/Sub target on `snapshot-requested`, data `{"type":"snapshot.scheduled"}` and attribute `type=snapshot.scheduled` (the Cloud Scheduler service agent needs `roles/pubsub.publisher` on the topic).
 - A private bucket (uniform access, public access prevention) for snapshots.
-- An Eventarc trigger on that bucket → snapshot-notifier (or a bucket Pub/Sub notification with the object prefix `snapshots/`: tiles and manifests are written to the same bucket and would otherwise wake the notifier for nothing). The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
+- A topic `snapshot-created` with a dead-letter topic, a Cloud Storage notification on the snapshot bucket → `snapshot-created` (event type `OBJECT_FINALIZE`, object name prefix `snapshots/` so tiles and manifests do not wake the notifier, payload `JSON_API_V1` or `NONE`), and a push subscription → snapshot-notifier with OIDC. The Cloud Storage service agent needs `roles/pubsub.publisher` on `snapshot-created`.
 - The secret holding the Discord public key.
 - One service account per service, with the roles listed above.
-- Eight Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy, web-proxy and web-auth are reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
+- Eight Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy, web-proxy and web-auth are reached only through the API Gateway, the others only by Pub/Sub.
 - An API Gateway route `POST /interactions` → discord-proxy. Its URL goes in the Discord portal as *Interactions Endpoint URL*.
 - API Gateway routes `GET /api/auth/login` and `GET /api/auth/callback` → web-auth, forwarding the `Cookie` header and the query string, and passing `Location` and `Set-Cookie` back unchanged.
-- The secret holding the Discord OAuth2 client secret.
+- The secret holding the Discord OAuth2 client secret, and the one holding the channel webhook URL for scheduled snapshots (created in Discord: channel settings → Integrations → Webhooks).
 - API Gateway routes `POST /api/pixels` and `POST /api/brush` → web-proxy, forwarding the `Authorization` header. A gateway quota per client is advised: each new token costs one call to Discord.
 
 ## Development

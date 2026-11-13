@@ -35,6 +35,26 @@ function multipart(payload, files) {
   return form;
 }
 
+const WEBHOOK_URL = /^https:\/\/(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/\d{1,20}\/[A-Za-z0-9_-]{1,100}$/;
+
+const isWebhookUrl = (value) => typeof value === "string" && WEBHOOK_URL.test(value);
+
+function createChannelWebhook({ url, fetch = globalThis.fetch }) {
+  if (!isWebhookUrl(url)) throw new Error("invalid Discord webhook URL");
+
+  async function post(message) {
+    const response = await fetch(`${url}?wait=true`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ allowed_mentions: { parse: [] }, ...message }),
+      signal: AbortSignal.timeout(TIMEOUT_MS)
+    });
+    if (!response.ok) throw new DiscordApiError(response.status, await response.text().catch(() => ""));
+  }
+
+  return { post };
+}
+
 function createDiscordClient({ fetch = globalThis.fetch, baseUrl = DISCORD_API } = {}) {
   async function editOriginal(event, message, files = []) {
     const payload = { allowed_mentions: { parse: [] }, ...message };
@@ -57,4 +77,4 @@ function createDiscordClient({ fetch = globalThis.fetch, baseUrl = DISCORD_API }
   return { editOriginal };
 }
 
-module.exports = { createDiscordClient, DiscordApiError };
+module.exports = { createDiscordClient, createChannelWebhook, isWebhookUrl, DiscordApiError };

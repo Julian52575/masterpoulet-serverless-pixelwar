@@ -247,6 +247,95 @@ describe("next snapshots (incremental)", () => {
   });
 });
 
+describe("scheduled snapshots", () => {
+  const scheduled = { type: "snapshot.scheduled" };
+  const message = (id, at) => ({ messageId: id, publishTime: new Date(at).toISOString() });
+
+  test("takes the id and time from the Pub/Sub message, as the scheduler message is always the same", async () => {
+    const { store, take, draw } = setup();
+    draw(1, 1, "#ff0000", T0 - 10 * 60 * 1000);
+    const result = await take(scheduled, message("9001", T0));
+
+    assert.equal(result.scheduled, true);
+    assert.equal(result.snapshotId, "scheduled-9001");
+    assert.equal(result.name, "snapshots/2026-11-13T12-00-00-000Z_scheduled-9001.png");
+    const metadata = store.objects.get(result.name).metadata;
+    assert.equal(metadata.requested_by, "scheduler");
+    assert.equal(metadata.interaction_token, "");
+    assert.equal(metadata.correlation_id, "scheduled-9001");
+  });
+
+  test("always takes the first snapshot, even with an empty canvas", async () => {
+    const { take } = setup();
+    const result = await take(scheduled, message("1", T0));
+    assert.equal(result.skipped, false);
+    assert.equal(result.mode, "full");
+  });
+
+  test("skips when nothing was written since the previous snapshot, and writes nothing", async () => {
+    const { store, take, draw, setClock } = setup();
+    draw(1, 1, "#ff0000", T0 - 10 * 60 * 1000);
+    await take(scheduled, message("1", T0));
+    const objects = store.objects.size;
+    const latest = store.latest;
+
+    setClock(T0 + 5 * 60 * 1000);
+    const result = await take(scheduled, message("2", T0 + 5 * 60 * 1000));
+
+    assert.deepEqual(result, { skipped: true, snapshotId: "scheduled-2", mode: "incremental", pixelsRead: 0 });
+    assert.equal(store.objects.size, objects);
+    assert.equal(store.latest, latest);
+  });
+
+  test("takes a new snapshot as soon as a pixel changed", async () => {
+    const { take, draw, setClock } = setup();
+    draw(1, 1, "#ff0000", T0 - 10 * 60 * 1000);
+    await take(scheduled, message("1", T0));
+
+    setClock(T0 + 5 * 60 * 1000);
+    draw(2, 2, "#00ff00", T0 + 4 * 60 * 1000);
+    const result = await take(scheduled, message("2", T0 + 5 * 60 * 1000));
+
+    assert.equal(result.skipped, false);
+    assert.equal(result.count, 2);
+  });
+
+  test("takes a new snapshot after /admin clear, even if nothing was drawn since", async () => {
+    const { db, take, draw, setClock } = setup();
+    draw(1, 1, "#ff0000", T0 - 10 * 60 * 1000);
+    await take(scheduled, message("1", T0));
+
+    db.docs.set("state/canvas", { cleared_at: new Date(T0 + 1000) });
+    db.docs.delete("pixels/1_1");
+    setClock(T0 + 5 * 60 * 1000);
+    const result = await take(scheduled, message("2", T0 + 5 * 60 * 1000));
+
+    assert.equal(result.skipped, false);
+    assert.equal(result.count, 0);
+  });
+
+  test("never skips a /snapshot asked on Discord, even with no change", async () => {
+    const { take, draw, setClock } = setup();
+    draw(1, 1, "#ff0000", T0 - 10 * 60 * 1000);
+    await take(scheduled, message("1", T0));
+
+    setClock(T0 + 5 * 60 * 1000);
+    const result = await take(request("2", T0 + 5 * 60 * 1000));
+    assert.equal(result.skipped, false);
+  });
+
+  for (const [label, bad] of [
+    ["no message id", { publishTime: new Date(T0).toISOString() }],
+    ["a message id that could change the path", { messageId: "../x", publishTime: new Date(T0).toISOString() }],
+    ["no publish time", { messageId: "1" }]
+  ]) {
+    test(`refuses a scheduler message with ${label}`, async () => {
+      const { take } = setup();
+      await assert.rejects(take(scheduled, bad), InvalidRequestError);
+    });
+  }
+});
+
 describe("invalid requests", () => {
   for (const [name, bad] of Object.entries({
     "another event type": { type: "pixel.processed" },

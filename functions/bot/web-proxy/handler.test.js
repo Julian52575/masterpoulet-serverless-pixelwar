@@ -80,6 +80,15 @@ describe("web proxy handler", () => {
     assert.deepEqual(published[0].rect, { x0: 9, y0: 9, x1: 13, y1: 13 });
   });
 
+  test("reads the Discord token from X-Forwarded-Authorization, where the API Gateway moves it", async () => {
+    const { handle, published } = setup();
+    const res = await quiet(() => handle(request("/pixels", { x: 1, y: 1, color: "red" }, {
+      headers: { authorization: "Bearer google-id-token-of-the-gateway", "x-forwarded-authorization": "Bearer good-token" }
+    })));
+    assert.equal(res.result.statusCode, 202);
+    assert.equal(published.length, 1);
+  });
+
   test("answers 401 with no Discord user and publishes nothing", async () => {
     const { handle, published } = setup({ authError: new UnauthorizedError("token refused by discord") });
     const { result: res } = await quiet(() => handle(request("/pixels", { x: 1, y: 1, color: "red" })));

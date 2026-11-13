@@ -32,7 +32,7 @@ function createHandler({ authenticate, quota, publish, now = () => new Date() })
 
     let user;
     try {
-      user = await authenticate(headers.authorization);
+      user = await authenticate(headers["x-forwarded-authorization"] ?? headers.authorization);
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         log.warn("web draw unauthorized", { correlation_id: correlationId, reason: error.message });

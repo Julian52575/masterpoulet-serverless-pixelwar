@@ -127,7 +127,7 @@ Some of its files are shared with other services (see *Development*).
 | | |
 |---|---|
 | Trigger | `POST /pixels` and `POST /brush` (with or without an `/api` prefix), from the website through the API Gateway |
-| Auth | `Authorization: Bearer <Discord access token>` (OAuth2, scope `identify`), checked with `GET https://discord.com/api/v10/users/@me`; the answer is cached 5 minutes per token, keyed by a SHA-256 hash of the token |
+| Auth | `Authorization: Bearer <Discord access token>` (OAuth2, scope `identify`; read from `X-Forwarded-Authorization` first, where the API Gateway moves it), checked with `GET https://discord.com/api/v10/users/@me`; the answer is cached 5 minutes per token, keyed by a SHA-256 hash of the token |
 | Reads | `state/canvas` (pause), `limits/{user_id}` and `ratelimit/{user_id}_{minute}` (quota), never writes |
 | Publishes to | `draw-pixel` (`web.draw`, attributes `type`, `source`, `correlation_id`) |
 | Env | `DRAW_TOPIC` (required) |
@@ -260,22 +260,7 @@ To test them, with Java and the Firebase CLI installed: `firebase emulators:star
 
 ## Infrastructure checklist
 
-What the Terraform has to provide for the bot:
-
-- Firestore (native mode), with the two TTL policies above.
-- Firebase enabled on the project, with a Web app (its `apiKey`, `projectId` and `appId` go in the frontend build), and `functions/firestore/firestore.rules` deployed as the Firestore ruleset (`google_firebaserules_ruleset` + `google_firebaserules_release` named `cloud.firestore`).
-- Topics `draw-pixel`, `commands` and `snapshot-requested`, each with a dead-letter topic. The old `pixel-events` topic, its subscriptions and the `PIXEL_EVENTS_TOPIC` variables can be removed.
-- Push subscriptions `draw-pixel` → draw-pixel, `commands` → admin-cmd (filter `hasPrefix(attributes.type, "admin.")`), `commands` → get-canvas (filter `attributes.type = "get"`) and `snapshot-requested` → snapshot-worker, authenticated with OIDC (a service account with `roles/run.invoker`), with an ack deadline of about 60 s and a dead-letter policy.
-- A Cloud Scheduler job, schedule `*/5 * * * *`, with a Pub/Sub target on `snapshot-requested`, data `{"type":"snapshot.scheduled"}` and attribute `type=snapshot.scheduled` (the Cloud Scheduler service agent needs `roles/pubsub.publisher` on the topic).
-- A private bucket (uniform access, public access prevention) for snapshots.
-- A topic `snapshot-created` with a dead-letter topic, a Cloud Storage notification on the snapshot bucket → `snapshot-created` (event type `OBJECT_FINALIZE`, object name prefix `snapshots/` so tiles and manifests do not wake the notifier, payload `JSON_API_V1` or `NONE`), and a push subscription → snapshot-notifier with OIDC. The Cloud Storage service agent needs `roles/pubsub.publisher` on `snapshot-created`.
-- The secret holding the Discord public key.
-- One service account per service, with the roles listed above.
-- Eight Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy, web-proxy and web-auth are reached only through the API Gateway, the others only by Pub/Sub.
-- An API Gateway route `POST /interactions` → discord-proxy. Its URL goes in the Discord portal as *Interactions Endpoint URL*.
-- API Gateway routes `GET /api/auth/login` and `GET /api/auth/callback` → web-auth, forwarding the `Cookie` header and the query string, and passing `Location` and `Set-Cookie` back unchanged.
-- The secret holding the Discord OAuth2 client secret, and the one holding the channel webhook URL for scheduled snapshots (created in Discord: channel settings → Integrations → Webhooks).
-- API Gateway routes `POST /api/pixels` and `POST /api/brush` → web-proxy, forwarding the `Authorization` header. A gateway quota per client is advised: each new token costs one call to Discord.
+Everything the Terraform has to provide (functions, environment variables, topics and subscriptions, scheduler, bucket, Firestore and Firebase, service accounts and IAM, secrets, API Gateway, Discord portal, smoke test) is in [`../INFRASTRUCTURE.md`](../INFRASTRUCTURE.md).
 
 ## Development
 

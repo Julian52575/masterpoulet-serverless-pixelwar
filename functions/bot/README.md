@@ -22,7 +22,7 @@ Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬�
 1. `web-auth` logs the website user in with Discord OAuth2 and hands the Discord access token to the browser.
 2. `web-proxy` checks the website user's Discord token, the pause and the quota, then publishes `web.draw` on `draw-pixel` and answers `202`.
 3. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command on one of three topics: `/draw` on `draw-pixel`, `/snapshot` on `snapshot-requested`, everything else on `commands`.
-4. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions, publish events and edit the Discord reply. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
+4. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions and edit the Discord reply. They publish nothing: the website sees the changes through its Firestore listeners. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
 5. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
 6. `snapshot-notifier` receives the bucket's Pub/Sub notification for the new overview image and sends a signed link to Discord.
 
@@ -55,7 +55,7 @@ Admin rights are checked by the services, never only in Discord: `admin-cmd` for
 
 ## Services
 
-Each service is an HTTP Cloud Function built with `@google-cloud/functions-framework`. `index.js` registers the function and reads the configuration when it loads; an invalid configuration stops it from loading. `local.js` and the `Dockerfile` are kept for running a service as a plain container.
+Each service is an HTTP Cloud Function built with `@google-cloud/functions-framework`. `index.js` registers the function and reads the configuration when it loads; an invalid configuration stops it from loading. discord-proxy, snapshot-worker and snapshot-notifier also keep a `local.js` and a `Dockerfile` from before, for running them as plain containers; they are not used by the deployment.
 
 | Service | Folder | Entry point |
 |---|---|---|
@@ -238,7 +238,7 @@ Push endpoints reply:
 | `400` | the message can never succeed | retries until the dead-letter topic |
 | `500` | temporary failure (Firestore, Discord 429/5xx) | retries |
 
-Every command is idempotent: a receipt in `processed/{interaction_id}` stops a redelivered draw from counting twice.
+Every command is idempotent: a receipt in `processed/{interaction_id}` (Discord) or `processed/{request_id}_{chunk}` (web) stops a redelivered draw from counting twice.
 
 ## Firestore
 
@@ -248,7 +248,7 @@ Every command is idempotent: a receipt in `processed/{interaction_id}` stops a r
 | `pixels/{x}_{y}` | `x`, `y`, `tile` (`"<tx>_<ty>"`), `color` (`#rrggbb`), `author` (Discord id), `author_name`, `updated_at` (when it was drawn), `written_at` (when draw-pixel stored it) (grid 10000×10000, tiles of 256) | read, live |
 | `limits/{user_id}` | per-user draws per minute | hidden |
 | `ratelimit/{user_id}_{minute}` | fixed-window counter, `expires_at` | hidden |
-| `processed/{interaction_id}` | idempotency receipt, `expires_at` | hidden |
+| `processed/{interaction_id}`, `processed/{request_id}_{chunk}` | idempotency receipt, `expires_at` | hidden |
 
 Only single-field indexes are used (including `pixels.tile` and `pixels.written_at`, created automatically). TTL policies on `ratelimit.expires_at` and `processed.expires_at` clean old documents.
 
@@ -272,6 +272,8 @@ To test them, with Java and the Firebase CLI installed: `firebase emulators:star
 
 ## Infrastructure checklist
 
+What the website needs (login, draw routes, Firestore listeners) is in [`../WEB_CONTRACT.md`](../WEB_CONTRACT.md).
+
 Everything the Terraform has to provide (functions, environment variables, topics and subscriptions, scheduler, bucket, Firestore and Firebase, service accounts and IAM, secrets, API Gateway, Discord portal, smoke test) is in [`../INFRASTRUCTURE.md`](../INFRASTRUCTURE.md).
 
 ## Load test
@@ -289,4 +291,4 @@ npm test
 
 The tests use `node:test` and an in-memory Firestore, so they need no emulator or network. CI runs them for every service, along with `npm audit` (see `.github/workflows/ci.yml`).
 
-Each Cloud Function is deployed from its own folder, so code used by several services is copied into each of them (`envelope.js`, `discord.js`, `reply.js`, `state.js`, `pixels.js`, `render.js`, `png.js`, `logger.js`...). The `SHARED` table at the top of each `shared.test.js` lists which services hold the same file; the test fails as soon as two copies differ. Change a shared file in every service that has it.
+Each Cloud Function is deployed from its own folder, so code used by several services is copied into each of them (`envelope.js`, `discord.js`, `reply.js`, `state.js`, `pixels.js`, `png.js`, `logger.js`, `tracing.js`...). The `SHARED` table at the top of each `shared.test.js` lists which services hold the same file; the test fails as soon as two copies differ. Change a shared file in every service that has it.

@@ -2,6 +2,10 @@
 
 ALWAYS ensure that you are following the README.md and CONTRIBUTOR.md first.
 
+## Scripts
+
+ALWAYS write helper/dev scripts in OS-agnostic Python (stdlib, `pathlib`, `subprocess` with argument lists). NEVER add PowerShell, batch or bash-only scripts. Give scripts a `--dry-run` when they run external tools.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

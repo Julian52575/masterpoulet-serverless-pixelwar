@@ -7,6 +7,16 @@ On linux, the easiest way to run and test the project is through nix.
 
 See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 
+## GCP infrastructure ON / OFF
+
+```sh
+python deploy.py
+python destroy.py
+```
+
+Start with `--env dev --plan-only`. Read [the short operator guide](INFRA-POWER.md)
+for confirmations, protected networks, ARC credential recovery and current blockers.
+
 ## Quick start
 
 ```bash

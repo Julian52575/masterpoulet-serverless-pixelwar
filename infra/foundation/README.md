@@ -11,6 +11,11 @@ manage buckets, IAM, APIs, GKE clusters or runners. Default networks remain
 outside this state. State buckets are managed by the independent
 [bootstrap root](../bootstrap/README.md).
 
+Cloud NAT can be disabled with `enable_nat=false`; VPC, subnet and Router remain.
+The default is true. A moved block preserves the existing NAT as
+`google_compute_router_nat.nat[0]`. Use the root [ON/OFF scripts](../../INFRA-POWER.md)
+to remove ARC and GKE first; never run foundation destroy to switch OFF.
+
 | Setting | DEV | PROD |
 | --- | --- | --- |
 | Variables | `dev.tfvars` | `prod.tfvars` |
@@ -34,7 +39,7 @@ and secondary ranges of the selected subnet.
 GKE DEV already uses this network and its secondary ranges. The complete
 foundation configuration in [PR #12](https://github.com/Julian52575/masterpoulet-serverless-pixelwar/pull/12)
 at `1ae9c75` declares those ranges and was used for the reviewed migration plans.
-The main-based C02 branch does not duplicate that PR's Terraform changes.
+The current branch includes the necessary C04 secondary-range definitions.
 Do not apply an older configuration that removes ranges used by GKE. Align the
 reviewed revision with C04 before any network deployment.
 
@@ -61,12 +66,12 @@ Verify the selected backend's bucket/prefix before planning. Neither the active
 gcloud project nor a new terminal selects Terraform's backend. Never migrate
 states merely to switch environment.
 
-The expected PROD review plan after migration of the existing state contains
-no VPC/subnet creation, replacement or deletion. The complete C04 configuration
-currently proposes only two creations (Router and NAT) and an in-place subnet
-update adding Pods `10.32.0.0/21` and Services `10.32.8.0/24`. That is a review
-expectation, not permission to apply; use the actual result in the migration
-report. No PROD apply is part of the migration procedure.
+On 13 November 2026, the reviewed PROD plan created the missing Router and NAT
+and added Pods `10.32.0.0/21` and Services `10.32.8.0/24` to the existing subnet
+in place. The VPC and primary range were preserved. The subsequent canonical
+plan returned no changes. See the [deployment report](FINALISATION-PROD-2026-11-13.md)
+for the remaining GKE and runners prerequisites. The earlier migration reports
+remain historical records; no migration was repeated during this deployment.
 
 ## Inspection and outputs
 

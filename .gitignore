@@ -7,6 +7,7 @@
 
 # --- local environment ----------------------------------------------
 .env
+/.terraform-power/
 
 # --- node / frontend build output ------------------------------------
 node_modules/

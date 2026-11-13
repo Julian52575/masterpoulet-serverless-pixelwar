@@ -8,6 +8,12 @@ variable "project_id" {
   }
 }
 
+variable "enable_nat" {
+  description = "Enable Cloud NAT; disabling it preserves the VPC, subnet and Router."
+  type        = bool
+  default     = true
+}
+
 variable "region" {
   description = "GCP region for the subnet."
   type        = string
@@ -31,5 +37,25 @@ variable "subnet_cidr" {
   validation {
     condition     = can(cidrnetmask(var.subnet_cidr)) && try(cidrsubnet(var.subnet_cidr, 0, 0) == var.subnet_cidr, false)
     error_message = "Use a canonical IPv4 CIDR, for example 10.0.1.0/24."
+  }
+}
+
+variable "gke_pods_cidr" {
+  description = "Canonical IPv4 secondary range reserved for GKE Pods."
+  type        = string
+
+  validation {
+    condition     = can(cidrnetmask(var.gke_pods_cidr)) && try(cidrsubnet(var.gke_pods_cidr, 0, 0) == var.gke_pods_cidr, false)
+    error_message = "Use a canonical IPv4 CIDR for Pods, for example 10.16.0.0/21."
+  }
+}
+
+variable "gke_services_cidr" {
+  description = "Canonical IPv4 secondary range reserved for GKE Services."
+  type        = string
+
+  validation {
+    condition     = can(cidrnetmask(var.gke_services_cidr)) && try(cidrsubnet(var.gke_services_cidr, 0, 0) == var.gke_services_cidr, false)
+    error_message = "Use a canonical IPv4 CIDR for Services, for example 10.16.8.0/24."
   }
 }

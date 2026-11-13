@@ -1,0 +1,5 @@
+project_id               = "masterpoulet-dev"
+zone                     = "europe-west1-b"
+cluster_name             = "masterpoulet-dev-gke"
+node_pool_name           = "github-runners"
+controller_chart_version = "0.15.0"

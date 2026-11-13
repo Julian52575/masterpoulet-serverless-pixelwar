@@ -1,6 +1,15 @@
 # Standardisation PROD — audit et procédure du 11 novembre 2026
 
-**Statut : PRÉPARATION UNIQUEMENT, NON EXÉCUTÉE.** Décision de l'utilisateur :
+> **Migration exécutée et vérifiée le 12 novembre après confirmation explicite
+> du gel par l'utilisateur et l'équipe.** `foundation/prod` possède les deux
+> ressources, avec continuité du lineage et serial 6 ; la source historique
+> reste inchangée, conservée comme archive sans écrivain. Le nouveau plan
+> canonique C04 retourne 2 créations, 1 modification, 0 destruction/remplacement.
+> Aucun apply. Voir le [bilan DEV/PROD](VALIDATION-2026-11-12.md) et ses
+> [preuves filtrées](validation-2026-11-12.json). Le contenu ci-dessous décrit
+> la préparation historique du 11 novembre, pas le statut final de l'exécution.
+
+**Statut au 11 novembre : PRÉPARATION UNIQUEMENT, NON EXÉCUTÉE.** Décision de l'utilisateur à cette date :
 « Non, préparer seulement la migration », le gel des écritures des autres
 opérateurs n'étant pas confirmé. L'absence de run GitHub ou de verrou au moment
 de l'audit ne prouve pas qu'une session Terraform d'un autre poste ne peut pas

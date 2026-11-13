@@ -1,4 +1,6 @@
 resource "google_compute_router_nat" "nat" {
+  count = var.enable_nat ? 1 : 0
+
   name                               = "${var.network_name}-nat"
   project                            = var.project_id
   region                             = var.region
@@ -10,4 +12,9 @@ resource "google_compute_router_nat" "nat" {
     name                    = google_compute_subnetwork.subnet.id
     source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
   }
+}
+
+moved {
+  from = google_compute_router_nat.nat
+  to   = google_compute_router_nat.nat[0]
 }

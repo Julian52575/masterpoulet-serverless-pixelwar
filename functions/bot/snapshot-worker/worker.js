@@ -35,6 +35,9 @@ function createWorker({ takeSnapshot }) {
         ...fields,
         object: result.name,
         pixel_count: result.count,
+        mode: result.mode,
+        changed_tiles: result.changedTiles,
+        pixels_read: result.pixelsRead,
         bytes: result.bytes,
         duration_ms: Date.now() - started
       });

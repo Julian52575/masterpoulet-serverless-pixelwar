@@ -1,13 +1,22 @@
 const { test, describe } = require("node:test");
 const assert = require("node:assert/strict");
-const { createSnapshotStore } = require("./storage");
+const { createSnapshotStore, LATEST_MANIFEST } = require("./storage");
 
-function fakeBucket() {
+function fakeBucket({ failDownload } = {}) {
   const saves = [];
+  const objects = new Map();
   return {
     name: "teamx-dev-snapshots",
     saves,
-    file: (name) => ({ save: async (data, options) => { saves.push({ name, data, options }); } })
+    objects,
+    file: (name) => ({
+      save: async (data, options) => { saves.push({ name, data, options }); objects.set(name, data); },
+      download: async () => {
+        if (failDownload) throw failDownload;
+        if (!objects.has(name)) throw Object.assign(new Error("No such object"), { code: 404 });
+        return [objects.get(name)];
+      }
+    })
   };
 }
 
@@ -35,5 +44,38 @@ describe("snapshot store", () => {
   test("lets a storage failure reach the caller", async () => {
     const bucket = { name: "b", file: () => ({ save: async () => { throw new Error("503 backend error"); } }) };
     await assert.rejects(createSnapshotStore({ bucket }).save({ name: "x.png", png: Buffer.alloc(1), metadata: {} }), /503/);
+  });
+
+  test("saves a tile as a PNG with no custom metadata", async () => {
+    const bucket = fakeBucket();
+    await createSnapshotStore({ bucket }).saveTile("tiles/0_0/a.png", Buffer.from([9]));
+    assert.deepEqual(bucket.saves[0].options, { resumable: false, contentType: "image/png", metadata: { cacheControl: "private, max-age=0" } });
+  });
+
+  test("reads a tile back, and returns null when it does not exist", async () => {
+    const bucket = fakeBucket();
+    const store = createSnapshotStore({ bucket });
+    await store.saveTile("tiles/0_0/a.png", Buffer.from([9]));
+    assert.deepEqual(await store.readTile("tiles/0_0/a.png"), Buffer.from([9]));
+    assert.equal(await store.readTile("tiles/0_0/missing.png"), null);
+  });
+
+  test("lets other read errors reach the caller, so Pub/Sub retries", async () => {
+    const store = createSnapshotStore({ bucket: fakeBucket({ failDownload: Object.assign(new Error("503"), { code: 503 }) }) });
+    await assert.rejects(store.readTile("tiles/0_0/a.png"), /503/);
+  });
+
+  test("saves the manifest under its name and as the latest one", async () => {
+    const bucket = fakeBucket();
+    const store = createSnapshotStore({ bucket });
+    assert.equal(await store.latestManifest(), null);
+
+    await store.saveManifest("manifests/a.json", { name: "manifests/a.json", tiles: {} });
+
+    assert.deepEqual(bucket.saves.map((s) => [s.name, s.options.contentType]), [
+      ["manifests/a.json", "application/json"],
+      [LATEST_MANIFEST, "application/json"]
+    ]);
+    assert.deepEqual(await store.latestManifest(), { name: "manifests/a.json", tiles: {} });
   });
 });

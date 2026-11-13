@@ -49,7 +49,8 @@ describe("draw", () => {
       color: "#ff0000",
       author: "111",
       author_name: "Alice",
-      updated_at: new Date(MINUTE_START + 14000)
+      updated_at: new Date(MINUTE_START + 14000),
+      written_at: new Date(MINUTE_START + 15000)
     });
   });
 

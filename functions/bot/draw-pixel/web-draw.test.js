@@ -118,7 +118,8 @@ describe("drawArea", () => {
       color: "#e50000",
       author: "111",
       author_name: "Alice",
-      updated_at: new Date(DRAWN_AT)
+      updated_at: new Date(DRAWN_AT),
+      written_at: new Date(MINUTE_START + 15000)
     });
   });
 

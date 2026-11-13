@@ -91,7 +91,8 @@ function createPixelStore({ db, now = () => Date.now(), chunkSize = CHUNK_SIZE }
           color,
           author,
           author_name: authorName ?? null,
-          updated_at: drawnAt
+          updated_at: drawnAt,
+          written_at: new Date(startedAt)
         });
       }
 
@@ -187,7 +188,8 @@ function createPixelStore({ db, now = () => Date.now(), chunkSize = CHUNK_SIZE }
           color,
           author,
           author_name: authorName ?? null,
-          updated_at: drawnAt
+          updated_at: drawnAt,
+          written_at: new Date(startedAt)
         });
         written.push({ x, y });
       }

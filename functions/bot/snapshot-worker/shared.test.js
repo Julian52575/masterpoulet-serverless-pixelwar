@@ -10,8 +10,7 @@ const read = (service, file) => fs.readFileSync(path.join(bot, service, file), "
 const SHARED = {
   "envelope.js": ["admin-cmd", "draw-pixel", "get-canvas"],
   "fake-firestore.js": ["admin-cmd", "draw-pixel", "get-canvas", "web-proxy"],
-  "png.js": ["get-canvas"],
-  "render.js": ["get-canvas"]
+  "png.js": ["get-canvas"]
 };
 
 const LOGGERS = ["discord-proxy", "draw-pixel", "admin-cmd", "get-canvas", "snapshot-notifier", "web-proxy", "web-auth"];
@@ -33,6 +32,27 @@ describe("code shared with the other services", () => {
       );
     });
   }
+
+  test("uses the same tiles as draw-pixel", () => {
+    const own = require("./tiles");
+    const grid = require(path.join(bot, "draw-pixel", "grid"));
+    const pixels = require(path.join(bot, "draw-pixel", "pixels"));
+    assert.equal(own.TILE, grid.TILE);
+    assert.equal(own.GRID, grid.SIZE);
+    for (const [x, y] of [[0, 0], [255, 256], [9999, 9999]]) assert.equal(own.tileId(x, y), pixels.tileId(x, y));
+  });
+
+  test("finds the pixels draw-pixel writes, by their written_at field", async () => {
+    const { fakeFirestore } = require("./fake-firestore");
+    const { createPixelStore } = require(path.join(bot, "draw-pixel", "pixels"));
+    const { createCanvasReader } = require("./state");
+    const db = fakeFirestore();
+    await createPixelStore({ db, now: () => 5000 }).draw({
+      x: 3, y: 4, color: "#ff0000", author: "1", authorName: null, drawnAt: new Date(1000), limit: 20
+    });
+    const found = await createCanvasReader({ db }).pixelsWrittenSince(new Date(4999));
+    assert.deepEqual(found.map((p) => [p.x, p.y, p.color]), [[3, 4, "#ff0000"]]);
+  });
 
   test("reads the same Firestore collections as draw-pixel writes", () => {
     const own = require("./state");

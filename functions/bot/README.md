@@ -13,7 +13,7 @@ Website ─► API Gateway ─► web-proxy ─────┐
 Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬─(admin.*)─► admin-cmd ──► Firestore
                                          │              └─(get)─────► get-canvas ──► Firestore (read)
                                          │
-                                         └──[snapshot-requested]──► snapshot-worker ──► bucket (snapshots/*.png)
+                                         └──[snapshot-requested]──► snapshot-worker ──► bucket (tiles, manifest, overview)
                                                                     │ object.finalized (Eventarc)
                                                                     ▼
                                                             snapshot-notifier ──► Discord
@@ -166,9 +166,28 @@ The website keeps the token in memory (or `sessionStorage`) and sends it as `Aut
 | | |
 |---|---|
 | Trigger | Pub/Sub push from `snapshot-requested`, `POST /` |
-| Writes | `gs://<SNAPSHOT_BUCKET>/snapshots/<ISO time>_<snapshot id>.png`, with the Discord interaction in the object metadata |
+| Reads | `state/canvas` (`cleared_at`) and `pixels` in Firestore; the latest manifest and the tiles it needs in the bucket |
+| Writes | the changed tiles, a manifest and the overview image (see below) |
 | Env | `SNAPSHOT_BUCKET` (required), `STORAGE_API_ENDPOINT` (local emulator only) |
-| Needs | `roles/datastore.viewer`; on the bucket, create **and overwrite** objects (`roles/storage.objectUser`, since a retried request writes the same name again) |
+| Needs | `roles/datastore.viewer`; on the bucket, read, create **and overwrite** objects (`roles/storage.objectUser`, since a retried request and `manifests/latest.json` overwrite objects) |
+
+Snapshots are **incremental and tiled**. A full 10000×10000 image would not fit in a function's memory, so the canvas is stored as 256×256 tiles (40×40 tiles), and each snapshot only redraws the tiles that changed since the previous one:
+
+1. Read `manifests/latest.json`, the previous snapshot.
+2. Read from Firestore only the pixels with `written_at` after the previous snapshot's `taken_at`, minus a 2-minute margin so a write still in a transaction is not missed.
+3. For each tile those pixels touch: load the previous tile PNG, paint the new pixels on it, save it as a new object. Unchanged tiles are not read nor copied: the new manifest points to the previous objects.
+4. Save the manifest, then the overview image (cropped to the painted tiles, scaled down to 2048 px at most).
+
+The first snapshot, a snapshot after `/admin clear` (the manifest remembers `cleared_at`), or one whose previous tiles are missing reads every visible pixel instead (`mode: "full"`).
+
+| Object | Content |
+|---|---|
+| `tiles/<tx>_<ty>/<ISO time>_<id>.png` | one 256×256 RGBA tile; transparent = never painted. Never overwritten by another snapshot |
+| `manifests/<ISO time>_<id>.json` | `version`, `snapshot_id`, `requested_at`, `taken_at`, `cleared_at`, `previous`, `mode`, `pixel_count`, `changed_tiles`, `image`, and `tiles`: `{ "<tx>_<ty>": { "object", "pixels" } }` |
+| `manifests/latest.json` | a copy of the newest manifest |
+| `snapshots/<ISO time>_<id>.png` | the overview image, written **last**; its metadata (interaction token, `pixel_count`, `manifest`) is what snapshot-notifier uses |
+
+Tiles still referenced by a manifest must not be deleted: a lifecycle rule may only remove `tiles/` objects older than the oldest manifest kept. A missing tile is not fatal: the worker logs a warning and rebuilds from Firestore.
 
 ### snapshot-notifier
 
@@ -206,7 +225,7 @@ Every command is idempotent: a receipt in `processed/{interaction_id}` stops a r
 | Document | Content |
 |---|---|
 | `state/canvas` | `paused`, `cleared_at`, `cleared_by`, `updated_by`, `updated_at` |
-| `pixels/{x}_{y}` | `x`, `y`, `tile`, `color`, `author`, `author_name`, `updated_at` (grid 10000×10000, tiles of 256) |
+| `pixels/{x}_{y}` | `x`, `y`, `tile`, `color`, `author`, `author_name`, `updated_at` (when it was drawn), `written_at` (when draw-pixel stored it, used by incremental snapshots) (grid 10000×10000, tiles of 256) |
 | `limits/{user_id}` | per-user draws per minute |
 | `ratelimit/{user_id}_{minute}` | fixed-window counter, `expires_at` |
 | `processed/{interaction_id}` | idempotency receipt, `expires_at` |
@@ -221,7 +240,7 @@ What the Terraform has to provide for the bot:
 - Topics `draw-pixel`, `commands`, `pixel-events` and `snapshot-requested`, each with a dead-letter topic.
 - Push subscriptions `draw-pixel` → draw-pixel, `commands` → admin-cmd (filter `hasPrefix(attributes.type, "admin.")`), `commands` → get-canvas (filter `attributes.type = "get"`) and `snapshot-requested` → snapshot-worker, authenticated with OIDC (a service account with `roles/run.invoker`), with an ack deadline of about 60 s and a dead-letter policy.
 - A private bucket (uniform access, public access prevention) for snapshots.
-- An Eventarc trigger on that bucket → snapshot-notifier. The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
+- An Eventarc trigger on that bucket → snapshot-notifier (or a bucket Pub/Sub notification with the object prefix `snapshots/`: tiles and manifests are written to the same bucket and would otherwise wake the notifier for nothing). The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
 - The secret holding the Discord public key.
 - One service account per service, with the roles listed above.
 - Eight Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy, web-proxy and web-auth are reached only through the API Gateway, the others only by Pub/Sub and Eventarc.

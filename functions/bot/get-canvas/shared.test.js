@@ -15,8 +15,7 @@ const SHARED = {
   "pixels.js": ["admin-cmd", "draw-pixel"],
   "reply.js": ["admin-cmd", "draw-pixel"],
   "state.js": ["admin-cmd", "draw-pixel", "web-proxy"],
-  "png.js": ["snapshot-worker"],
-  "render.js": ["snapshot-worker"]
+  "png.js": ["snapshot-worker"]
 };
 
 const LOGGERS = ["discord-proxy", "draw-pixel", "admin-cmd", "snapshot-worker", "snapshot-notifier", "web-proxy", "web-auth"];

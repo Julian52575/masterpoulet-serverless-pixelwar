@@ -1,6 +1,6 @@
 # Infrastructure GCP — guide de l’équipe
 
-Quatre roots Terraform indépendants, sans wrapper :
+Sept roots Terraform indépendants, sans wrapper :
 
 | Root | Responsabilité | Préfixes GCS |
 | --- | --- | --- |
@@ -8,6 +8,9 @@ Quatre roots Terraform indépendants, sans wrapper :
 | foundation | VPC, subnet, plages GKE, Router et NAT optionnel | foundation/dev, foundation/prod |
 | gke | Cluster privé, pool runners, compte de service et IAM des nœuds | gke/dev, gke/prod |
 | runners | Helm : contrôleur ARC et runner scale set | runners/dev, runners/prod |
+| access | Accès humains additifs, indépendants des workloads | access/dev, access/prod |
+| identity | Adoption WIF/OIDC et déployeur existants | identity/dev, identity/prod |
+| secrets | Conteneurs Secret Manager et IAM par secret, aucune valeur | secrets/dev, secrets/prod |
 
 | Paramètre | DEV | PROD |
 | --- | --- | --- |
@@ -34,11 +37,12 @@ terraform init -backend=false -input=false -lockfile=readonly
 terraform validate
 ```
 
-La CI exécute ces contrôles sur les quatre roots, sans credential cloud. Cela
+La CI existante exécute ces contrôles sur les quatre roots historiques, sans credential cloud. Cela
 ne valide ni le drift réel, ni les quotas, ni les droits, ni la facturation.
 Le workflow Terraform Plan reste manuel, utilise OIDC/WIF et ne fait aucun apply.
 Ses variables d’environnement GitHub WIF_PROVIDER et DEPLOYER_SA doivent exister.
-Les pools/providers WIF et les droits du déployeur ne sont pas gérés par ces roots.
+Les trois roots C03 sont validés localement ; leur ajout à la CI est hors mission.
+Voir [C03](C03.md) pour l’inventaire, les imports préparés et les blocages de sécurité.
 
 ## Exploitation future, hors mission de nettoyage
 

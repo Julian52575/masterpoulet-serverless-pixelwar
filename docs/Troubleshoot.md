@@ -18,6 +18,18 @@ La migration officielle du 12 novembre est confirmée ; la bascule de tous les
 opérateurs ne l’est pas. Ne pas importer en double, relancer la migration ou
 supprimer l’archive. Voir le [statut et les sauvegardes](../infra/foundation/MIGRATION-PROD-2026-11-11.md).
 
+## Import WIF propose de remplacer le pool existant
+
+Le 13 novembre 2026, les premiers plans identity DEV/PROD ont été refusés par
+prevent_destroy. L’import WIF normalise project en numéro alors que le code
+utilisait l’ID textuel : Terraform proposait un remplacement. Employer le numéro
+issu de data.google_project.current pour le pool et le provider, avec leurs IDs
+d’import projects/<number>/locations/global/..., sans ignore_changes ni retrait
+de protection. Les plans corrigés réussissent : 5 imports, 2 créations, 1 mise
+à jour du provider et aucun remplacement par projet. Les plans ont interrogé
+GCP avec un backend local privé, car init GCS créerait les states absents.
+Voir [les résultats et limites C03](../infra/C03.md#vérifications-et-limites).
+
 ## ARC référence un Secret absent ou refuse l’enregistrement
 
 Le code C04 référençait arc-rw alors que DEV utilisait github-pat-arc. La référence
@@ -54,9 +66,13 @@ pour un nettoyage d’infrastructure. Un audit échoué doit rester signalé.
 Contrôle du 13 novembre 2026 : frontend, zéro entrée ; backend, 16 entrées
 modérées et 3 faibles (chaîne Jest, glob/minimatch et deepmerge). Le seuil CI
 interdit cinq entrées modérées/faibles ou plus. Les lockfiles applicatifs sont
-inchangés par l’intégration/nettoyage ; ce blocage empêche le push des commits.
+inchangés par l’intégration/nettoyage ; ce blocage empêchait alors le push C02/C04.
 Les remédiations proposées, dont un downgrade majeur de Jest, restent à revoir
 séparément. Aucune correction automatique ni modification du seuil n’a été faite.
+La mission suivante autorise la publication de la branche C03 si ses contrôles
+Terraform et de sécurité passent ; les alertes applicatives préexistantes ne
+sont ni corrigées ni présentées comme introduites par C03. La CI conserve ses
+propres contrôles et peut bloquer une future intégration.
 
 ## Historique Git C04
 

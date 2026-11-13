@@ -40,6 +40,12 @@ et [les claims GitHub](https://docs.github.com/en/actions/reference/security/oid
   seulement un grant conditionnel ne réduirait pas le droit cumulatif existant.
   Aucune révocation ni adoption de ce grant historique dangereux n’est automatisée.
 
+Ce grant n’est pas le seul accès aux states : les grants GCS legacy des
+Owner/Editor et les rôles de plusieurs comptes techniques s’y ajoutent.
+Les deux buckets ont uniform bucket-level access activé ; leurs conditions
+IAM sont utilisables, mais ne restreignent pas les autres grants cumulés.
+Voir [l’audit des accès et la transition proposée](../C03.md#accès-effectifs-aux-states).
+
 L’amorçage et la gestion des stacks de sécurité doivent utiliser une identité
 humaine administrative autorisée, distincte du déployeur ordinaire. Droits à
 scoper : gestion du pool, du compte, de ses bindings, des grants de projet/bucket
@@ -58,8 +64,21 @@ local, sans créer de state GCS. Ils ont échoué car l’import normalisait pro
 en numéro alors que le code utilisait son ID textuel : un remplacement du pool
 était proposé et prevent_destroy l’a refusé. Le code a été corrigé pour employer
 le numéro, puis les plans cloud suspendus conformément à la consigne de sécurité.
-**Aucun plan corrigé n’est certifié.** Refaire les deux plans après revue, sans
-retirer prevent_destroy. Aucun import effectif, state local géré ou apply réalisé.
+La mission suivante a autorisé leur reprise : le 13 novembre 2026, les deux
+plans corrigés réussissent : **5 imports, 2 créations, 1 mise à jour, 0 destruction
+ou remplacement** par projet. Pool, compte et bindings existants restent inchangés.
+Seuls la condition et le mapping OIDC du provider sont mis à jour ; le rôle GCS
+minimal et son grant conditionnel sont nouveaux. Aucun ignore_changes ajouté.
+
+Les préfixes GCS identity/dev et identity/prod ont été vérifiés absents, dans
+les buckets des projets attendus. Le backend GCS de Terraform 1.16.6 écrit un
+state vide lorsqu’il n’existe pas : pour respecter l’interdiction de toute
+écriture GCS, les plans interrogent GCP depuis des copies privées à backend
+local, avec les mêmes tfvars, providers verrouillés et imports. Cela valide
+les actions cloud, pas l’initialisation, l’écriture ou le verrouillage GCS.
+Aucun import effectif, state géré local/distant ou apply réalisé ; ces plans
+de revue ne doivent jamais servir à un apply. Refaire un plan avec le backend
+canonique uniquement dans une future opération approuvée.
 
 WIF_PROVIDER et DEPLOYER_SA sont exposés par outputs, sans modifier GitHub.
 Les variables d’environnement GitHub doivent être vérifiées ultérieurement ;
@@ -67,3 +86,12 @@ les workflows et protections GitHub n’ont pas été changés ni déclenchés.
 Les branches feature, PR et anciens déploiements sur tags ne satisfont pas la
 politique proposée. L’autorisation d’autres workflows/refs/events et les
 reviewers PROD relèvent d’une future mission CI/CD, après revue de sécurité.
+
+Attention : origin/main à af889d6 contient encore le workflow historique,
+avec apply, déclenchements sur tags et checkout d’un inputs.ref arbitraire.
+Les claims ref/workflow_ref décrivent le workflow, pas nécessairement le code
+checkouté. Le durcissement proposé rejettera les tags et les branches feature,
+mais ne contrôle pas ce paramètre de checkout. La promotion et la revue du
+workflow manuel de cette branche doivent précéder toute mise en service WIF.
+Les valeurs GitHub et protections d’environnement n’ont pas pu être confirmées
+(CLI non authentifiée) ; aucun token OIDC réel n’a été demandé ni workflow lancé.

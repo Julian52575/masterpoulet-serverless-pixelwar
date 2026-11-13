@@ -27,6 +27,38 @@ premier plan ciblé sur google_project_service.secretmanager peut préparer la
 seule activation de l’API ; aucune application de ce plan n’est autorisée ici.
 Si l’API a été adoptée ailleurs, réconcilier son ownership avant cette étape.
 
+Commandes préparées **pour une opération ultérieure approuvée**, depuis la
+racine du dépôt. Choisir un seul environnement et un TF_DATA_DIR absolu distinct
+pour chaque couple root/environnement ; les préfixes GCS sont encore absents,
+donc init peut créer un state vide. Ne pas les initialiser avant la validation
+de l’accès aux states décrite dans [C03](../C03.md).
+
+Exemple DEV ; pour PROD, remplacer ensemble dev.hcl, dev.tfvars et
+masterpoulet-dev par leurs équivalents prod :
+
+```sh
+terraform -chdir=infra/secrets init -input=false -lockfile=readonly -backend-config=backends/dev.hcl
+terraform -chdir=infra/secrets plan -input=false -var-file=dev.tfvars -target=google_project_service.secretmanager -out=api.tfplan
+```
+
+Ce ciblage est réservé à l’amorçage de l’API, jamais à la création des secrets.
+Faire approuver séparément ce plan et son application, puis inventorier sans
+accéder aux versions :
+
+```sh
+gcloud services list --enabled --project=masterpoulet-dev --filter=config.name:secretmanager.googleapis.com
+gcloud secrets list --project=masterpoulet-dev --format="table(name,replication)"
+gcloud secrets describe discord-public-key --project=masterpoulet-dev --format=json
+gcloud secrets get-iam-policy discord-public-key --project=masterpoulet-dev --format=json
+```
+
+Répéter les deux dernières commandes pour les autres IDs observés. Après
+réconciliation des imports, réplications et grants, passer inventory_confirmed
+à true et lancer un plan complet avec les tfvars du même environnement.
+Seuls les conteneurs absents doivent être créés ; les existants doivent être
+importés sans remplacement. Faire approuver ce nouveau plan avant toute adoption.
+Aucune de ces opérations d’amorçage n’a été exécutée pendant cette mission.
+
 Pour chaque secret existant, vérifier aussi la réplication : le code prévoit
 auto, qui doit être adapté à une configuration existante différente avant
 adoption. Ne jamais accepter un remplacement pour la normaliser. imports.tf
@@ -61,4 +93,4 @@ sans extraire sa valeur du cluster pendant cette mission, puis appliquer runners
 après revue. Ne pas migrer ce credential automatiquement vers Secret Manager.
 
 Backend : secrets/dev ou secrets/prod, bucket et tfvars du même environnement.
-Voir [C03](../C03.md) : aucune ressource déployée et aucun plan cloud certifié.
+Voir [C03](../C03.md) : aucune ressource déployée et aucun plan cloud secrets validé.

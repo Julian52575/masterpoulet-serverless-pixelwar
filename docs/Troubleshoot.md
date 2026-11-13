@@ -80,3 +80,14 @@ Le rebase du 11 novembre avait retiré l’historique C02 dupliqué et remplacé
 commits non signés, avec sauvegardes. L’intégration suivante dans C02 utilise un
 vrai merge signé (94ff798), sans réécrire C04 ni main. Les anciens diagnostics
 restent dans l’historique Git ; ils ne décrivent pas forcément l’état courant.
+
+## Run Terraform automatique en échec sans job
+
+Le push C03 du 13 novembre 2026, commit e761a8e, a produit un
+[run en échec](https://github.com/Julian52575/masterpoulet-serverless-pixelwar/actions/runs/43522036780)
+pour .github/workflows/terraform-deploy.yml, avec zéro job et zéro check run.
+La cause détaillée reste inconnue : les API consultées ne la renvoient pas.
+Les workflows sont inchangés dans C03 ; ne pas conclure à un échec Terraform
+ou OIDC sans diagnostic. La mission interdit de modifier la CI/CD : conserver
+le résultat et examiner les annotations de l’interface Actions dans une mission
+distincte. Aucun contournement ni déclenchement manuel n’a été effectué.

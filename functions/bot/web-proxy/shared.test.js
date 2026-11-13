@@ -12,7 +12,8 @@ const SHARED = {
   "grid.js": ["admin-cmd", "draw-pixel", "get-canvas"],
   "state.js": ["admin-cmd", "draw-pixel", "get-canvas"],
   "limits.js": ["admin-cmd", "draw-pixel"],
-  "palette.js": ["draw-pixel"]
+  "palette.js": ["draw-pixel"],
+  "correlation.js": ["web-auth"]
 };
 
 const LOGGERS = ["discord-proxy", "draw-pixel", "admin-cmd", "get-canvas", "snapshot-worker", "snapshot-notifier", "web-auth"];

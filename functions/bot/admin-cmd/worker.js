@@ -1,5 +1,6 @@
 const { parsePushMessage, InvalidMessageError } = require("./envelope");
 const { log } = require("./logger");
+const { inSpan, recordStatus, SpanKind } = require("./tracing");
 
 const ACK = 204;
 const REJECT = 400;
@@ -23,26 +24,7 @@ function createWorker({ handlers, authorizer, discord }) {
     return { statusCode: ACK };
   }
 
-  return async function handle(rawBody) {
-    let message;
-    try {
-      message = parsePushMessage(rawBody);
-    } catch (error) {
-      if (!(error instanceof InvalidMessageError)) throw error;
-      log.warn("invalid pubsub push message", { error: error.message });
-      return { statusCode: REJECT };
-    }
-
-    const { event, messageId, deliveryAttempt } = message;
-    const fields = {
-      correlation_id: event.correlation_id,
-      command: event.type,
-      user_id: event.user_id,
-      interaction_id: event.interaction_id,
-      message_id: messageId,
-      delivery_attempt: deliveryAttempt
-    };
-
+  async function processEvent(event, fields) {
     if (!Object.hasOwn(handlers, event.type)) {
       log.warn("unsupported command type", fields);
       return { statusCode: REJECT };
@@ -62,6 +44,34 @@ function createWorker({ handlers, authorizer, discord }) {
 
     log.info("command processed", { ...fields, duration_ms: Date.now() - started });
     return { statusCode: ACK };
+  }
+
+  return async function handle(rawBody) {
+    let message;
+    try {
+      message = parsePushMessage(rawBody);
+    } catch (error) {
+      if (!(error instanceof InvalidMessageError)) throw error;
+      log.warn("invalid pubsub push message", { error: error.message });
+      return { statusCode: REJECT };
+    }
+
+    const { event, messageId, deliveryAttempt, attributes } = message;
+    const fields = {
+      correlation_id: event.correlation_id,
+      command: event.type,
+      user_id: event.user_id,
+      interaction_id: event.interaction_id,
+      message_id: messageId,
+      delivery_attempt: deliveryAttempt
+    };
+
+    const name = `admin-cmd ${Object.hasOwn(handlers, event.type) ? event.type : "unknown"}`;
+    return inSpan(name, { kind: SpanKind.CONSUMER, parent: attributes, attributes: fields }, async (span) => {
+      const result = await processEvent(event, fields);
+      recordStatus(span, result.statusCode);
+      return result;
+    });
   };
 }
 

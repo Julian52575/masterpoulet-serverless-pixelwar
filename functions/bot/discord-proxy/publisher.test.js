@@ -1,6 +1,8 @@
 const { test, describe, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
+const { InMemorySpanExporter } = require("@opentelemetry/sdk-trace-base");
 const { createPublisher } = require("./publisher");
+const { startTracing, flushTraces, inSpan, SpanKind } = require("./tracing");
 
 const ENV = { DRAW_TOPIC: "draw-pixel", COMMANDS_TOPIC: "commands", SNAPSHOT_TOPIC: "snapshot" };
 const NOW = new Date("2026-11-12T10:00:00.000Z");
@@ -62,4 +64,30 @@ describe("createPublisher", () => {
       assert.equal(sent.length, 0);
     });
   }
+});
+
+describe("tracing", () => {
+  test("records a producer span under the interaction and passes its trace context to the worker", async () => {
+    const exporter = new InMemorySpanExporter();
+    startTracing({ service: "discord-proxy", env: {}, exporter });
+    const sent = [];
+    const publish = createPublisher({
+      env: ENV,
+      now: () => NOW,
+      createTopic: () => ({ publishMessage: async (message) => { sent.push(message); return "msg-7"; } })
+    });
+
+    await inSpan("discord-proxy interaction", { kind: SpanKind.SERVER }, () => publish({ ...base, type: "admin.pause", payload: {} }));
+    await flushTraces();
+
+    const spans = exporter.getFinishedSpans();
+    const producer = spans.find((span) => span.name === "publish commands");
+    const server = spans.find((span) => span.name === "discord-proxy interaction");
+    assert.equal(producer.kind, SpanKind.PRODUCER);
+    assert.equal(producer.parentSpanContext.spanId, server.spanContext().spanId);
+    assert.equal(producer.attributes.type, "admin.pause");
+    assert.equal(producer.attributes["messaging.message.id"], "msg-7");
+    const { traceId, spanId } = producer.spanContext();
+    assert.deepEqual(sent[0].attributes, { type: "admin.pause", correlation_id: "abc", traceparent: `00-${traceId}-${spanId}-01` });
+  });
 });

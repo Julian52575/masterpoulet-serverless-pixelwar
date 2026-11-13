@@ -1,3 +1,7 @@
+const { startTracing, flushTraces } = require("./tracing");
+
+startTracing({ service: "snapshot-notifier" });
+
 const functions = require("@google-cloud/functions-framework");
 const { Storage } = require("@google-cloud/storage");
 const { createNotifier } = require("./notifier");
@@ -29,11 +33,12 @@ functions.http("snapshotNotifier", async (req, res) => {
     return;
   }
 
+  let statusCode = 500;
   try {
-    const { statusCode } = await handle(req.headers, req.rawBody ?? Buffer.alloc(0));
-    res.status(statusCode).end();
+    ({ statusCode } = await handle(req.headers, req.rawBody ?? Buffer.alloc(0)));
   } catch (error) {
     log.error("unhandled notifier error", { error: error.message });
-    res.status(500).end();
   }
+  await flushTraces();
+  res.status(statusCode).end();
 });

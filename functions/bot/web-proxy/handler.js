@@ -2,6 +2,8 @@ const { randomUUID } = require("node:crypto");
 const { routeOf, readDraw, areaOf, InvalidDrawError } = require("./draws");
 const { UnauthorizedError, DiscordUnavailableError } = require("./auth");
 const { log } = require("./logger");
+const { correlationIdFrom } = require("./correlation");
+const { annotate } = require("./tracing");
 
 const MAX_BODY_BYTES = 1024;
 const DISCORD_RETRY_SECONDS = 5;
@@ -25,7 +27,8 @@ function parseBody(rawBody) {
 
 function createHandler({ authenticate, quota, publish, now = () => new Date() }) {
   return async function handle({ method, path, headers = {}, rawBody = Buffer.alloc(0) }) {
-    const correlationId = randomUUID();
+    const correlationId = correlationIdFrom(headers);
+    annotate({ correlation_id: correlationId });
     const route = routeOf(path);
     if (!route) return answer(404, { error: "not found" }, correlationId);
     if (method !== "POST") return answer(405, { error: "method not allowed" }, correlationId, { allow: "POST" });
@@ -48,6 +51,7 @@ function createHandler({ authenticate, quota, publish, now = () => new Date() })
     }
 
     const fields = { correlation_id: correlationId, user_id: user.user_id, route, auth_cached: user.cached };
+    annotate({ user_id: user.user_id, route });
 
     let draw;
     try {
@@ -78,7 +82,7 @@ function createHandler({ authenticate, quota, publish, now = () => new Date() })
       username: user.username,
       rect: draw.rect,
       color: draw.color,
-      request_id: correlationId,
+      request_id: randomUUID(),
       requested_at: now().toISOString(),
       correlation_id: correlationId
     };

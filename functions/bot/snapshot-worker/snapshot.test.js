@@ -111,7 +111,8 @@ describe("first snapshot (full build)", () => {
       application_id: "123456789012345678",
       interaction_token: "secret-token",
       channel_id: "555",
-      correlation_id: "corr-7"
+      correlation_id: "corr-7",
+      traceparent: ""
     });
     assert.ok(!store.objects.get(result.manifest).data.toString().includes("secret-token"));
   });

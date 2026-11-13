@@ -1,5 +1,6 @@
 const { parseStorageEvent, InvalidEventError } = require("./cloudevent");
 const { log } = require("./logger");
+const { inSpan, recordStatus, SpanKind } = require("./tracing");
 
 const ACK = 204;
 const REJECT = 400;
@@ -72,6 +73,34 @@ function createNotifier({ files, discord, bucket, ttlMinutes, webhook = null, po
     }
   }
 
+  async function deliver(name, metadata, context) {
+    if (!metadata.interaction_token && metadata.requested_by === SCHEDULER) {
+      return postScheduled(name, metadata, context);
+    }
+
+    if (!metadata.application_id || !metadata.interaction_token) {
+      log.warn("snapshot has no Discord interaction to answer", context);
+      return { statusCode: ACK };
+    }
+
+    try {
+      const url = await files.signedUrl(name, ttlMinutes);
+      await discord.editOriginal(
+        { application_id: metadata.application_id, interaction_token: metadata.interaction_token },
+        { content: snapshotMessage({ url, requestedAt: metadata.requested_at, pixelCount: metadata.pixel_count, ttlMinutes }) }
+      );
+      log.info("snapshot link sent", { ...context, ttl_minutes: ttlMinutes });
+      return { statusCode: ACK };
+    } catch (error) {
+      if (error.status !== undefined && !error.retryable) {
+        log.warn("could not send the snapshot link to Discord", { ...context, error: error.message, status: error.status });
+        return { statusCode: ACK };
+      }
+      log.error("snapshot notification failed", { ...context, error: error.message, status: error.status });
+      return { statusCode: RETRY };
+    }
+  }
+
   return async function handle(headers, rawBody) {
     let event;
     try {
@@ -97,31 +126,11 @@ function createNotifier({ files, discord, bucket, ttlMinutes, webhook = null, po
     }
 
     const context = { ...fields, correlation_id: metadata.correlation_id, snapshot_id: metadata.snapshot_id };
-    if (!metadata.interaction_token && metadata.requested_by === SCHEDULER) {
-      return postScheduled(event.name, metadata, context);
-    }
-
-    if (!metadata.application_id || !metadata.interaction_token) {
-      log.warn("snapshot has no Discord interaction to answer", context);
-      return { statusCode: ACK };
-    }
-
-    try {
-      const url = await files.signedUrl(event.name, ttlMinutes);
-      await discord.editOriginal(
-        { application_id: metadata.application_id, interaction_token: metadata.interaction_token },
-        { content: snapshotMessage({ url, requestedAt: metadata.requested_at, pixelCount: metadata.pixel_count, ttlMinutes }) }
-      );
-      log.info("snapshot link sent", { ...context, ttl_minutes: ttlMinutes });
-      return { statusCode: ACK };
-    } catch (error) {
-      if (error.status !== undefined && !error.retryable) {
-        log.warn("could not send the snapshot link to Discord", { ...context, error: error.message, status: error.status });
-        return { statusCode: ACK };
-      }
-      log.error("snapshot notification failed", { ...context, error: error.message, status: error.status });
-      return { statusCode: RETRY };
-    }
+    return inSpan("snapshot-notifier deliver", { kind: SpanKind.CONSUMER, parent: { traceparent: metadata.traceparent }, attributes: context }, async (span) => {
+      const result = await deliver(event.name, metadata, context);
+      recordStatus(span, result.statusCode);
+      return result;
+    });
   };
 }
 

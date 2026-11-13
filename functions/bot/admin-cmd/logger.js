@@ -1,8 +1,11 @@
+const { traceFields } = require("./tracing");
+
 const SERVICE = process.env.K_SERVICE || "admin-cmd";
 
 function write(severity, message, fields = {}) {
   const entry = {
     ...fields,
+    ...traceFields(),
     severity,
     message,
     function: SERVICE,

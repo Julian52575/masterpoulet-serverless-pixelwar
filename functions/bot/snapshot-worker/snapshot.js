@@ -1,6 +1,7 @@
 const { SNAPSHOT_PREFIX, MANIFEST_PREFIX, TILE_PREFIX } = require("./storage");
 const { TILE, GRID, encodeTile, countPainted } = require("./tiles");
 const { renderOverview } = require("./overview");
+const { traceContext } = require("./tracing");
 const {
   MANIFEST_VERSION,
   WRITE_LAG_MS,
@@ -127,7 +128,8 @@ function createSnapshotTaker({ canvas, store, now = () => new Date() }) {
         application_id: String(event.application_id ?? ""),
         interaction_token: String(event.interaction_token ?? ""),
         channel_id: String(event.channel_id ?? ""),
-        correlation_id: String(event.correlation_id ?? (scheduled ? snapshotId : ""))
+        correlation_id: String(event.correlation_id ?? (scheduled ? snapshotId : "")),
+        traceparent: traceContext().traceparent ?? ""
       }
     });
 

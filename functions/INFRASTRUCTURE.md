@@ -21,7 +21,7 @@ Website ◄── Firestore listeners (pixels, state/canvas), read only, protect
 
 ## 2. APIs to enable
 
-`cloudfunctions`, `run`, `cloudbuild`, `artifactregistry`, `eventarc` (required by 2nd gen functions), `pubsub`, `firestore`, `storage`, `secretmanager`, `cloudscheduler`, `apigateway`, `servicemanagement`, `servicecontrol`, `iamcredentials`, `firebase`, `firebaserules`, `logging`, `cloudtrace`.
+`cloudfunctions`, `run`, `cloudbuild`, `artifactregistry`, `eventarc` (required by 2nd gen functions), `pubsub`, `firestore`, `storage`, `secretmanager`, `cloudscheduler`, `apigateway`, `servicemanagement`, `servicecontrol`, `iamcredentials`, `firebase`, `firebaserules`, `logging`, `cloudtrace`, `telemetry` (traces are sent to the OTLP endpoint `telemetry.googleapis.com`).
 
 ## 3. Cloud Functions (2nd gen)
 
@@ -64,6 +64,14 @@ Each function refuses to start when a required variable is missing or invalid, a
 | | `SIGNED_URL_TTL_MINUTES` | optional, default `60` (max `10080`) |
 | | `SNAPSHOT_WEBHOOK_URL` | optional **secret** `discord-snapshot-webhook`; without it, scheduled snapshots are not posted |
 | | `SCHEDULED_POST_EVERY_MINUTES` | optional, default `60` (from `5` to `10080`) |
+
+Every function also takes these tracing variables:
+
+| Variable | Value |
+|---|---|
+| `GOOGLE_CLOUD_PROJECT` | the project id. **Required for tracing**: 2nd gen functions do not set it; without it the function logs `tracing disabled` and only writes logs |
+| `TRACING_ENABLED` | optional; tracing is on by default in the cloud (`K_SERVICE` is set) and off locally; `false` turns it off |
+| `TRACE_SAMPLE_RATIO` | optional, from `0` to `1`, default `1` (every request). The decision depends only on the trace id, so all functions keep or drop the same traces |
 
 `STORAGE_API_ENDPOINT` exists only to reach a local storage emulator: do not set it in the cloud.
 
@@ -156,7 +164,7 @@ Google service agents:
 | Cloud Storage (`service-<project number>@gs-project-accounts.iam.gserviceaccount.com`) | `roles/pubsub.publisher` on `snapshot-created` |
 | Cloud Scheduler (`service-<project number>@gcp-sa-cloudscheduler.iam.gserviceaccount.com`) | `roles/pubsub.publisher` on `snapshot-requested` |
 
-Every function writes its logs with its own service account (`roles/logging.logWriter`); add `roles/cloudtrace.agent` when tracing is enabled.
+Every function's service account also needs `roles/logging.logWriter` (logs) and `roles/telemetry.tracesWriter` (*Cloud Telemetry Traces Writer*, to send spans to `telemetry.googleapis.com`). Without the second one, spans are dropped and the function logs `could not export traces`; requests still work.
 
 ## 9. Secret Manager
 
@@ -209,5 +217,7 @@ The gateway does not handle CORS preflights here: serve the website from the sam
 | website login | back on the site with `#access_token=…` |
 | website draw | `202`, and the pixel appears through the Firestore listener |
 | each `-dlq` subscription | empty |
+| Trace Explorer, after `/snapshot` | one trace: `discord-proxy interaction` → `publish snapshot-requested` → `snapshot-worker take snapshot` (with its Firestore and Storage calls) → `snapshot-notifier deliver` → the Discord call |
+| no log says `could not export traces` or `tracing disabled` | |
 
-Every log line is JSON with a `correlation_id`; filter on `jsonPayload.correlation_id="<id>"` in Cloud Logging to follow one command through every function.
+Every log line is JSON with a `correlation_id`, a `trace_id` and the Cloud Logging trace fields, so in Cloud Logging you can filter on `jsonPayload.correlation_id="<id>"`, and from a trace in Trace Explorer open its logs directly. The website may send its own id in an `X-Correlation-Id` header (8 to 64 letters, digits, `-` or `_`); web-proxy and web-auth keep it and send it back.

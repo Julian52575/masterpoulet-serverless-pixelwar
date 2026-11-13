@@ -5,6 +5,7 @@ const { parseInteraction } = require("./interaction");
 const { publishCommand } = require("./publisher");
 const { readAdmins, readPublicKey } = require("./config");
 const { createAuthorizer } = require("./admins");
+const { annotate } = require("./tracing");
 
 const EPHEMERAL = 64;
 const ADMIN_ONLY = new Set(["snapshot"]);
@@ -115,6 +116,7 @@ function createHandler({ publish, isAdmin = () => false }) {
 
     if (interaction.type === 2) {
       const correlationId = randomUUID();
+      annotate({ correlation_id: correlationId });
       const command = parseInteraction(interaction);
 
       if (!command) {
@@ -136,6 +138,7 @@ function createHandler({ publish, isAdmin = () => false }) {
         guild_id: command.guild_id
       };
       log.info("discord command received", fields);
+      annotate(fields);
 
       if (ADMIN_ONLY.has(command.type) && !isAdmin(command)) {
         log.warn("admin command refused", fields);

@@ -17,7 +17,8 @@ const SHARED = {
   "reply.js": ["admin-cmd", "get-canvas"],
   "state.js": ["admin-cmd", "get-canvas", "web-proxy"],
   "limits.js": ["admin-cmd", "web-proxy"],
-  "snowflake.js": ["admin-cmd"]
+  "snowflake.js": ["admin-cmd"],
+  "tracing.js": ["discord-proxy", "admin-cmd", "get-canvas", "snapshot-worker", "snapshot-notifier", "web-proxy", "web-auth"]
 };
 
 const LOGGERS = ["discord-proxy", "admin-cmd", "get-canvas", "snapshot-worker", "snapshot-notifier", "web-proxy", "web-auth"];

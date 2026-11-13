@@ -144,3 +144,37 @@ describe("readCookie", () => {
     assert.equal(readCookie(undefined, "a"), null);
   });
 });
+
+describe("correlation id", () => {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  test("every answer carries one, even errors", async () => {
+    const { handle } = setup();
+    const answers = await quiet(async () => [
+      await handle({ method: "GET", path: "/api/auth/login" }),
+      await handle(callback({ code: "abc", state: STATE })),
+      await handle(callback({ code: "abc", state: STATE }, null)),
+      await handle({ method: "POST", path: "/api/auth/login" }),
+      await handle({ method: "GET", path: "/api/nope" })
+    ]);
+    for (const res of answers.result) assert.match(res.headers["x-correlation-id"], UUID);
+  });
+
+  test("keeps the one sent by the browser and puts it in every log line", async () => {
+    const { handle } = setup();
+    const request = callback({ code: "abc", state: STATE });
+    request.headers["x-correlation-id"] = "web-login-1234";
+    const { result: res, entries } = await quiet(() => handle(request));
+
+    assert.equal(res.headers["x-correlation-id"], "web-login-1234");
+    assert.ok(entries.length > 0);
+    for (const entry of entries) assert.equal(entry.correlation_id, "web-login-1234");
+  });
+
+  test("logs a failed login with its correlation id", async () => {
+    const { handle } = setup({ exchangeError: new DiscordUnavailableError("timeout") });
+    const { result: res, entries } = await quiet(() => handle(callback({ code: "abc", state: STATE })));
+    const failure = entries.find((entry) => entry.message === "discord login failed");
+    assert.equal(failure.correlation_id, res.headers["x-correlation-id"]);
+  });
+});

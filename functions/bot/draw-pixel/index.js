@@ -1,3 +1,7 @@
+const { startTracing, flushTraces } = require("./tracing");
+
+startTracing({ service: "draw-pixel" });
+
 const functions = require("@google-cloud/functions-framework");
 const { Firestore } = require("@google-cloud/firestore");
 const { createWorker } = require("./worker");
@@ -23,11 +27,12 @@ functions.http("drawPixel", async (req, res) => {
     return;
   }
 
+  let statusCode = 500;
   try {
-    const { statusCode } = await handle(req.rawBody ?? Buffer.alloc(0));
-    res.status(statusCode).end();
+    ({ statusCode } = await handle(req.rawBody ?? Buffer.alloc(0)));
   } catch (error) {
     log.error("unhandled worker error", { error: error.message });
-    res.status(500).end();
   }
+  await flushTraces();
+  res.status(statusCode).end();
 });

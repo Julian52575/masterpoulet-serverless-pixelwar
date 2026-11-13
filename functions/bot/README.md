@@ -28,6 +28,18 @@ Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬�
 
 Every log line is JSON on stdout (`severity`, `message`, `function`, `timestamp`), and a `correlation_id` created by the proxy follows each command through every service. In Cloud Logging, filter with `jsonPayload.correlation_id="<id>"`.
 
+### Tracing
+
+Every function sends OpenTelemetry spans to Cloud Trace (`tracing.js`, the same file in every function):
+
+- the proxies open a span per request, and each publish opens a `publish <topic>` span whose W3C `traceparent` is added to the Pub/Sub message attributes;
+- each worker continues that trace from the message attributes, so one Discord command or web draw is **one trace** across functions;
+- `snapshot-worker` stores the `traceparent` in the snapshot's object metadata, and `snapshot-notifier` continues it from there, through the bucket notification;
+- Firestore calls and outgoing `fetch` calls (Discord, Cloud Storage) appear as child spans automatically;
+- inside a span, every log line also has `trace_id`, `span_id` and the Cloud Logging trace fields, so Trace Explorer links each trace to its logs.
+
+Spans are sent before the function answers, because Cloud Functions slow the CPU down once the answer is sent. Settings and IAM: see [INFRASTRUCTURE.md](../INFRASTRUCTURE.md).
+
 ## Commands
 
 | Command | Who | Result |
@@ -144,7 +156,7 @@ Bodies: `{ x, y, color }` for `/pixels`, `{ x, y, color, size }` for `/brush` (a
 | `429 { limit, retry_after }` | quota used up this minute (also a `Retry-After` header) |
 | `503` | Discord could not be reached to check the token |
 
-Every answer carries an `x-correlation-id` header, which is also the `request_id` and `correlation_id` of the published event. The pause and quota checks are a fast answer for the user: `draw-pixel` checks them again in its transaction and stays the authority. The proxy does not answer CORS preflights: the website must be served from the same origin as the API.
+Every answer carries an `x-correlation-id` header, which is also the `correlation_id` of the published event. The website may send its own in an `X-Correlation-Id` request header (8 to 64 letters, digits, `-` or `_`; anything else is replaced). The event's `request_id`, which `draw-pixel` uses to drop duplicates, is always a new UUID created by the proxy, never the browser's id. The pause and quota checks are a fast answer for the user: `draw-pixel` checks them again in its transaction and stays the authority. The proxy does not answer CORS preflights: the website must be served from the same origin as the API.
 
 ### web-auth
 
@@ -161,7 +173,7 @@ The authorization code flow, as the subject describes it:
 3. The code is exchanged for an access token with the client secret (HTTP Basic, server side only), and `/users/@me` gives the Discord user id.
 4. The browser is redirected to `APP_URL#access_token=…&token_type=Bearer&expires_in=…`. A fragment is never sent to a server and never logged. The token is not stored anywhere on the server side.
 
-The website keeps the token in memory (or `sessionStorage`) and sends it as `Authorization: Bearer <token>` to `web-proxy`. On failure the browser comes back with `#auth_error=access_denied`, `invalid_state`, `invalid_code` or `discord_unavailable`. Every answer has `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+The website keeps the token in memory (or `sessionStorage`) and sends it as `Authorization: Bearer <token>` to `web-proxy`. On failure the browser comes back with `#auth_error=access_denied`, `invalid_state`, `invalid_code` or `discord_unavailable`. Every answer has `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and an `x-correlation-id` header, also written on each log line. The login and the callback are two separate browser navigations, so each has its own correlation id; the user id in the `discord login` log links them to the user's later draws.
 
 ### snapshot-worker
 

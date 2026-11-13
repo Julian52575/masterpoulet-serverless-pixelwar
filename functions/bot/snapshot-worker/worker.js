@@ -1,37 +1,19 @@
 const { parsePushMessage, InvalidMessageError } = require("./envelope");
 const { InvalidRequestError } = require("./snapshot");
 const { log } = require("./logger");
+const { inSpan, recordStatus, SpanKind } = require("./tracing");
 
 const ACK = 204;
 const REJECT = 400;
 const RETRY = 500;
 
 function createWorker({ takeSnapshot }) {
-  return async function handle(rawBody) {
-    let message;
-    try {
-      message = parsePushMessage(rawBody);
-    } catch (error) {
-      if (!(error instanceof InvalidMessageError)) throw error;
-      log.warn("invalid pubsub push message", { error: error.message });
-      return { statusCode: REJECT };
-    }
-
-    const { event, messageId, publishTime, deliveryAttempt } = message;
-    const fields = {
-      correlation_id: event.correlation_id ?? messageId,
-      snapshot_id: event.snapshot_id,
-      requested_by: event.requested_by,
-      event_type: event.type,
-      message_id: messageId,
-      delivery_attempt: deliveryAttempt
-    };
-
+  async function take(event, fields, delivery) {
     log.info("snapshot requested", fields);
     const started = Date.now();
 
     try {
-      const result = await takeSnapshot(event, { messageId, publishTime });
+      const result = await takeSnapshot(event, delivery);
       if (result.skipped) {
         log.info("snapshot skipped: nothing changed", { ...fields, snapshot_id: result.snapshotId, duration_ms: Date.now() - started });
         return { statusCode: ACK };
@@ -57,6 +39,33 @@ function createWorker({ takeSnapshot }) {
       log.error("snapshot failed", { ...fields, error: error.message, duration_ms: Date.now() - started });
       return { statusCode: RETRY };
     }
+  }
+
+  return async function handle(rawBody) {
+    let message;
+    try {
+      message = parsePushMessage(rawBody);
+    } catch (error) {
+      if (!(error instanceof InvalidMessageError)) throw error;
+      log.warn("invalid pubsub push message", { error: error.message });
+      return { statusCode: REJECT };
+    }
+
+    const { event, messageId, publishTime, deliveryAttempt, attributes } = message;
+    const fields = {
+      correlation_id: event.correlation_id ?? messageId,
+      snapshot_id: event.snapshot_id,
+      requested_by: event.requested_by,
+      event_type: event.type,
+      message_id: messageId,
+      delivery_attempt: deliveryAttempt
+    };
+
+    return inSpan("snapshot-worker take snapshot", { kind: SpanKind.CONSUMER, parent: attributes, attributes: fields }, async (span) => {
+      const result = await take(event, fields, { messageId, publishTime });
+      recordStatus(span, result.statusCode);
+      return result;
+    });
   };
 }
 

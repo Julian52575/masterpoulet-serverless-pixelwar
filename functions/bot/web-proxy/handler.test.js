@@ -64,10 +64,40 @@ describe("web proxy handler", () => {
       username: "Alice",
       rect: { x0: 10, y0: 20, x1: 11, y1: 21 },
       color: "#e50000",
-      request_id: res.headers["x-correlation-id"],
+      request_id: published[0].request_id,
       requested_at: NOW.toISOString(),
       correlation_id: res.headers["x-correlation-id"]
     }]);
+    assert.match(published[0].request_id, UUID);
+    assert.notEqual(published[0].request_id, res.headers["x-correlation-id"]);
+  });
+
+  test("keeps the correlation id sent by the browser in the answer, the event and the logs", async () => {
+    const { handle, published } = setup();
+    const headers = { authorization: "Bearer good-token", "x-correlation-id": "web-3f9c2a7b1d" };
+    const { result: res, entries } = await quiet(() => handle(request("/pixels", { x: 1, y: 2, color: "red" }, { headers })));
+
+    assert.equal(res.headers["x-correlation-id"], "web-3f9c2a7b1d");
+    assert.equal(published[0].correlation_id, "web-3f9c2a7b1d");
+    assert.ok(entries.every((entry) => entry.correlation_id === "web-3f9c2a7b1d"));
+  });
+
+  test("never uses the browser's correlation id as the de-duplication key", async () => {
+    const { handle, published } = setup();
+    const headers = { authorization: "Bearer good-token", "x-correlation-id": "same-id-every-time" };
+    await quiet(() => handle(request("/pixels", { x: 1, y: 2, color: "red" }, { headers })));
+    await quiet(() => handle(request("/pixels", { x: 1, y: 2, color: "red" }, { headers })));
+
+    assert.equal(published.length, 2);
+    assert.notEqual(published[0].request_id, published[1].request_id);
+    for (const event of published) assert.match(event.request_id, UUID);
+  });
+
+  test("replaces an invalid correlation id with a new one", async () => {
+    const { handle } = setup();
+    const headers = { authorization: "Bearer good-token", "x-correlation-id": "bad id\nwith newline" };
+    const { result: res } = await quiet(() => handle(request("/pixels", { x: 1, y: 2, color: "red" }, { headers })));
+    assert.match(res.headers["x-correlation-id"], UUID);
   });
 
   test("publishes a brush as one rectangle and answers with what fits in the quota", async () => {

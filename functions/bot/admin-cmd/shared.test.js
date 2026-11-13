@@ -20,7 +20,7 @@ const SHARED = {
   "snowflake.js": ["draw-pixel"]
 };
 
-const LOGGERS = ["discord-proxy", "draw-pixel", "get-canvas", "snapshot-worker", "snapshot-notifier", "web-proxy"];
+const LOGGERS = ["discord-proxy", "draw-pixel", "get-canvas", "snapshot-worker", "snapshot-notifier", "web-proxy", "web-auth"];
 
 describe("code shared with the other services", () => {
   for (const [file, services] of Object.entries(SHARED)) {

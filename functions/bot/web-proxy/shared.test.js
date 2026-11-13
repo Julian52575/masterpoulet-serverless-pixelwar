@@ -15,7 +15,7 @@ const SHARED = {
   "palette.js": ["draw-pixel"]
 };
 
-const LOGGERS = ["discord-proxy", "draw-pixel", "admin-cmd", "get-canvas", "snapshot-worker", "snapshot-notifier"];
+const LOGGERS = ["discord-proxy", "draw-pixel", "admin-cmd", "get-canvas", "snapshot-worker", "snapshot-notifier", "web-auth"];
 
 describe("code shared with the other services", () => {
   for (const [file, services] of Object.entries(SHARED)) {

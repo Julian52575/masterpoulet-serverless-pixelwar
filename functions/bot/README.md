@@ -1,11 +1,12 @@
 # Discord bot (C07)
 
-The Discord bot of Pixelwar and the website's write path: seven Cloud Functions (2nd gen) that talk to each other only through events.
+The Discord bot of Pixelwar and the website's write path: eight Cloud Functions (2nd gen) that talk to each other only through events.
 This page is the reference for running, testing and deploying them.
 
 ## Architecture
 
 ```
+Website ─► API Gateway ─► web-auth ──► Discord OAuth2 (login, code exchange)
 Website ─► API Gateway ─► web-proxy ─────┐
                                          ├──[draw-pixel]──────────► draw-pixel ──► Firestore
                                          │
@@ -18,11 +19,12 @@ Discord ─► API Gateway ─► discord-proxy ─┼──[commands]──┬�
                                                             snapshot-notifier ──► Discord
 ```
 
-1. `web-proxy` checks the website user's Discord token, the pause and the quota, then publishes `web.draw` on `draw-pixel` and answers `202`.
-2. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command on one of three topics: `/draw` on `draw-pixel`, `/snapshot` on `snapshot-requested`, everything else on `commands`.
-3. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions, publish events and edit the Discord reply. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
-4. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
-5. `snapshot-notifier` reacts to the new object and sends a signed link to Discord.
+1. `web-auth` logs the website user in with Discord OAuth2 and hands the Discord access token to the browser.
+2. `web-proxy` checks the website user's Discord token, the pause and the quota, then publishes `web.draw` on `draw-pixel` and answers `202`.
+3. `discord-proxy` checks the Ed25519 signature, answers Discord within 3 seconds with a deferred reply, then publishes the command on one of three topics: `/draw` on `draw-pixel`, `/snapshot` on `snapshot-requested`, everything else on `commands`.
+4. `draw-pixel`, `admin-cmd` and `get-canvas` apply the rules (admin rights, pause, rate limit, validation) in Firestore transactions, publish events and edit the Discord reply. `admin-cmd` and `get-canvas` share the `commands` topic through subscriptions filtered on the `type` attribute.
+5. `snapshot-worker` renders the canvas as a PNG and stores it in the bucket.
+6. `snapshot-notifier` reacts to the new object and sends a signed link to Discord.
 
 Every log line is JSON on stdout (`severity`, `message`, `function`, `timestamp`), and a `correlation_id` created by the proxy follows each command through every service. In Cloud Logging, filter with `jsonPayload.correlation_id="<id>"`.
 
@@ -52,6 +54,7 @@ Each service is an HTTP Cloud Function built with `@google-cloud/functions-frame
 | snapshot-worker | `snapshot-worker/` | `snapshotWorker` |
 | snapshot-notifier | `snapshot-notifier/` | `snapshotNotifier` |
 | web-proxy | `web-proxy/` | `webProxy` |
+| web-auth | `web-auth/` | `webAuth` |
 
 Deploy from the service folder (the `.gcloudignore` keeps tests and local files out of the upload):
 
@@ -141,6 +144,23 @@ Bodies: `{ x, y, color }` for `/pixels`, `{ x, y, color, size }` for `/brush` (a
 
 Every answer carries an `x-correlation-id` header, which is also the `request_id` and `correlation_id` of the published event. The pause and quota checks are a fast answer for the user: `draw-pixel` checks them again in its transaction and stays the authority. The proxy does not answer CORS preflights: the website must be served from the same origin as the API.
 
+### web-auth
+
+| | |
+|---|---|
+| Trigger | `GET /auth/login` and `GET /auth/callback` (with or without an `/api` prefix), from the browser through the API Gateway |
+| Env | `DISCORD_CLIENT_ID` (required, the application id), `DISCORD_CLIENT_SECRET` (required, **from Secret Manager**), `OAUTH_REDIRECT_URI` (required, https, e.g. `https://<host>/api/auth/callback`, also registered in the Discord portal under *OAuth2 → Redirects*), `APP_URL` (required, https, where the browser is sent back) |
+| Needs | `roles/secretmanager.secretAccessor` on the client secret; outbound HTTPS to `discord.com`; nothing in Firestore or Pub/Sub |
+
+The authorization code flow, as the subject describes it:
+
+1. The "Login with Discord" button opens `/api/auth/login`. It sets a random `state` in a `__Host-` cookie (HttpOnly, Secure, SameSite=Lax, 10 minutes) and redirects to Discord with the `identify` scope only.
+2. Discord sends the browser back to `/api/auth/callback?code&state`. The `state` must match the cookie (CSRF protection), otherwise Discord is not called.
+3. The code is exchanged for an access token with the client secret (HTTP Basic, server side only), and `/users/@me` gives the Discord user id.
+4. The browser is redirected to `APP_URL#access_token=…&token_type=Bearer&expires_in=…`. A fragment is never sent to a server and never logged. The token is not stored anywhere on the server side.
+
+The website keeps the token in memory (or `sessionStorage`) and sends it as `Authorization: Bearer <token>` to `web-proxy`. On failure the browser comes back with `#auth_error=access_denied`, `invalid_state`, `invalid_code` or `discord_unavailable`. Every answer has `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+
 ### snapshot-worker
 
 | | |
@@ -204,8 +224,10 @@ What the Terraform has to provide for the bot:
 - An Eventarc trigger on that bucket → snapshot-notifier. The Cloud Storage service agent needs `roles/pubsub.publisher`, and the trigger's service account `roles/run.invoker` and `roles/eventarc.eventReceiver`.
 - The secret holding the Discord public key.
 - One service account per service, with the roles listed above.
-- Seven Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy and web-proxy are reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
+- Eight Cloud Functions (2nd gen, HTTP trigger), **not** publicly invokable: discord-proxy, web-proxy and web-auth are reached only through the API Gateway, the others only by Pub/Sub and Eventarc.
 - An API Gateway route `POST /interactions` → discord-proxy. Its URL goes in the Discord portal as *Interactions Endpoint URL*.
+- API Gateway routes `GET /api/auth/login` and `GET /api/auth/callback` → web-auth, forwarding the `Cookie` header and the query string, and passing `Location` and `Set-Cookie` back unchanged.
+- The secret holding the Discord OAuth2 client secret.
 - API Gateway routes `POST /api/pixels` and `POST /api/brush` → web-proxy, forwarding the `Authorization` header. A gateway quota per client is advised: each new token costs one call to Discord.
 
 ## Development

@@ -11,7 +11,7 @@ const SHARED = {
   "discord.js": ["admin-cmd", "draw-pixel", "get-canvas"]
 };
 
-const LOGGERS = ["discord-proxy", "draw-pixel", "admin-cmd", "get-canvas", "snapshot-worker", "web-proxy"];
+const LOGGERS = ["discord-proxy", "draw-pixel", "admin-cmd", "get-canvas", "snapshot-worker", "web-proxy", "web-auth"];
 
 describe("code shared with the other services", () => {
   for (const [file, services] of Object.entries(SHARED)) {

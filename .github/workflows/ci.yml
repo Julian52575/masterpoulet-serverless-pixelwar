@@ -154,7 +154,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        function: [discord-proxy, draw-pixel, admin-cmd, get-canvas, snapshot-worker, snapshot-notifier, web-proxy]
+        function: [discord-proxy, draw-pixel, admin-cmd, get-canvas, snapshot-worker, snapshot-notifier, web-proxy, web-auth]
     defaults:
       run:
         working-directory: functions/bot/${{ matrix.function }}
@@ -316,6 +316,7 @@ jobs:
           - { name: snapshot-worker, workspace: functions/bot/snapshot-worker }
           - { name: snapshot-notifier, workspace: functions/bot/snapshot-notifier }
           - { name: web-proxy, workspace: functions/bot/web-proxy }
+          - { name: web-auth, workspace: functions/bot/web-auth }
     env:
       WS: ${{ matrix.workspace }}
       NAME: ${{ matrix.name }}

@@ -1,0 +1,20 @@
+{
+  "name": "web-auth",
+  "version": "1.0.0",
+  "description": "Discord OAuth2 login for the Pixelwar website (C07)",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "functions-framework --target=webAuth"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^5.0.5"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

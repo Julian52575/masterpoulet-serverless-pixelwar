@@ -274,6 +274,10 @@ To test them, with Java and the Firebase CLI installed: `firebase emulators:star
 
 Everything the Terraform has to provide (functions, environment variables, topics and subscriptions, scheduler, bucket, Firestore and Firebase, service accounts and IAM, secrets, API Gateway, Discord portal, smoke test) is in [`../INFRASTRUCTURE.md`](../INFRASTRUCTURE.md).
 
+## Load test
+
+[`../load-test`](../load-test/README.md) sends a burst of website draws through the API Gateway, to show in the monitoring that the functions scale and that Pub/Sub buffers the draws.
+
 ## Development
 
 Node 22 or later. In each service folder:

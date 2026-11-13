@@ -1,0 +1,11 @@
+.gcloudignore
+.git
+.gitignore
+node_modules
+Dockerfile
+.dockerignore
+local.js
+*.test.js
+fake-firestore.js
+.env
+register-commands.js

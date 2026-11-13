@@ -24,6 +24,8 @@ services:
       - "${PROXY_DASHBOARD_PORT:-8080}:8080"
     volumes:
       - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro"
+    security_opt:
+      - label=disable
 
   db:
     image: docker.io/library/postgres:16-alpine

@@ -1,0 +1,30 @@
+{
+  "name": "snapshot-worker",
+  "version": "1.0.0",
+  "description": "Serverless worker rendering canvas snapshots into Cloud Storage for Pixelwar C07",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "functions-framework --target=snapshotWorker"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^9.4.0",
+    "@google-cloud/functions-framework": "^5.0.5",
+    "@google-cloud/storage": "^8.4.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/context-async-hooks": "2.12.0",
+    "@opentelemetry/core": "2.12.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.223.0",
+    "@opentelemetry/instrumentation-undici": "0.33.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-trace-base": "2.12.0",
+    "google-auth-library": "^11.3.4"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

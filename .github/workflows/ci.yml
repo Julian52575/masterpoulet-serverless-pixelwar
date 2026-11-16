@@ -421,17 +421,6 @@ jobs:
             fi
           }
 
-          # run <label> <command...>: same, for a command's exit status.
-          run() {
-            local label="$1"; shift
-            if "$@" > /dev/null; then
-              echo "ok    $label"
-            else
-              echo "::error::$label failed"
-              failed=1
-            fi
-          }
-
           echo '--- proxy'
           expect 'proxy dashboard API' 200 "$DASHBOARD/api/overview"
 

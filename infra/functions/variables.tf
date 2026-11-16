@@ -18,16 +18,31 @@ variable "firestore_location" {
 variable "discord_client_id" {
   description = "Discord application id."
   type        = string
+
+  validation {
+    condition     = length(var.discord_client_id) > 0
+    error_message = "Set the DISCORD_CLIENT_ID GitHub variable (TF_VAR_discord_client_id)."
+  }
 }
 
 variable "oauth_redirect_uri" {
   description = "Public https://<host>/api/auth/callback. Set by variable because the gateway host depends on the functions (cycle)."
   type        = string
+
+  validation {
+    condition     = startswith(var.oauth_redirect_uri, "https://")
+    error_message = "Set the OAUTH_REDIRECT_URI GitHub variable to an https URL (TF_VAR_oauth_redirect_uri)."
+  }
 }
 
 variable "app_url" {
   description = "Website URL web-auth redirects back to."
   type        = string
+
+  validation {
+    condition     = startswith(var.app_url, "https://")
+    error_message = "Set the APP_URL GitHub variable to an https URL (TF_VAR_app_url)."
+  }
 }
 
 variable "admin_user_ids" {

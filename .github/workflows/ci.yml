@@ -221,6 +221,11 @@ jobs:
         env: [dev, prod]
         root: [foundation, functions]
     environment: ${{ matrix.env }}
+    env:
+      # Per-environment GitHub variables; only infra/functions declares them.
+      TF_VAR_discord_client_id: ${{ vars.DISCORD_CLIENT_ID }}
+      TF_VAR_oauth_redirect_uri: ${{ vars.OAUTH_REDIRECT_URI }}
+      TF_VAR_app_url: ${{ vars.APP_URL }}
     defaults:
       run:
         working-directory: infra/${{ matrix.root }}

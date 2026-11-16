@@ -1,5 +1,2 @@
-project_id         = "masterpoulet-dev"
-region             = "europe-west1"
-discord_client_id  = "CHANGE_ME"
-oauth_redirect_uri = "https://CHANGE_ME/api/auth/callback"
-app_url            = "https://CHANGE_ME/"
+project_id = "masterpoulet-dev"
+region     = "europe-west1"

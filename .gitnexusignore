@@ -12,8 +12,5 @@ docs/gitnexus/
 frontend/src/App.jsx
 frontend/src/main.jsx
 
-# Applied migration history; prisma/schema.prisma is the current model.
-**/prisma/migrations/
-
 # Written by the openssf-scorecard workflow.
 SCORECARD.md

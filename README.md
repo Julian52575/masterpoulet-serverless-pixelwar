@@ -13,13 +13,12 @@ See [Contributor.md](CONTRIBUTOR.md) for project conventions.
 cp .env.example .env
 nix develop            # optional, see below
 just up --detach       # start the whole compose stack (expensive), then open http://localhost:8000
-just reset backend     # rebuild the backend service only
 just reset frontend    # rebuild the frontend service only
 just reset             # reset all
-just nuke              # nuke all (save database)
+just nuke              # nuke all
 ```
 
-Note that the local backend and frontend dev containers are dynamic, so local code changes are automatically replicated.
+Note that the local frontend dev container is dynamic, so local code changes are automatically replicated.
 
 ## Nix flake (optional)
 
@@ -53,20 +52,15 @@ Run `just` to see all available command and their summary.
 ## Services (Docker Compose)
 
 ```
-browser ──► proxy (Traefik :8000) ──┬─ /           ──► frontend (Vite, :3000)
-                                    ├─ /api/*      ──► backend  (Express, :3000)
-                                    └─ /ws         ──► backend  (WebSocket)
-                                    backend ──► db (Postgres)
-                                    backend ──► rabbitmq ──► backend ──► /ws clients
+browser ──► proxy (Traefik :8000) ──► frontend (Vite, :3000)
 ```
+
+The API is no longer part of the compose stack: it is the serverless functions in [`functions/`](functions/INFRASTRUCTURE.md), deployed by `infra/functions`.
 
 | Service | Role | Link to others |
 |---|---|---|
 | `proxy` | Traefik reverse proxy; dashboard on `:8080` (dev only, no auth) | Reads `traefik.*` labels from the other containers via the Podman/Docker socket and routes to them |
-| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority). Loads `/api/tiles/*`, draws through `/api/pixels` and `/api/brush`, and applies live deltas from `/ws` |
-| `backend` | Express API (proxy) + worker: tiles, pixels, brush, PNG export, snapshots, `/admin/*`, WebSocket on `/ws` | Routed on `/api` (prefix stripped by Traefik) and `/ws`. The API validates, checks pause and quota (shared state in `db`), and queues commands on `rabbitmq`; the worker writes `db` and publishes events to a fanout exchange that every instance relays to its WebSocket clients |
-| `db` | Postgres 16 | Used by `backend` through Prisma; migrations run on container start |
-| `rabbitmq` | Message broker; management UI on `:15672` | Used by `backend` |
+| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority) |
 
 ## Configuration (`.env`)
 
@@ -75,10 +69,6 @@ Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .
 | Variable | Used by | Purpose |
 |---|---|---|
 | `PROXY_PORT`, `PROXY_DASHBOARD_PORT` | `proxy` | Host ports for the app (default `8000`) and the Traefik dashboard (`8080`) |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | `db`, `backend` | Database credentials; the backend's `DATABASE_URL` is built from them |
-| `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_PORT` | `rabbitmq`, `backend` | Broker credentials and address |
-| `RATE_LIMIT` | `backend` | Pixels per minute per user, default `20`; `0` disables limiting and also lifts the brush size cap of 16 (dev only) |
-| `ADMIN_USERS` | `backend` | Comma-separated users allowed on `/admin/*` |
 | `PODMAN_STORAGE_DIR` (optional) | Nix dev shell | Where rootless Podman stores images and containers |
 | `PODMAN_NO_SOCKET` (optional) | Nix dev shell | Set to `1` to skip starting the Podman API socket (CI, headless) |
 
@@ -88,11 +78,11 @@ Change the example passwords before exposing the stack anywhere. To add a variab
 
 Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
-- `ci.yml`: dev shell / `nix flake check`, backend and frontend lint + tests, Dockerfile / compose / workflow linting, `npm audit`, a full stack boot test through Traefik, and GitNexus analysis. The `ci-required` job gates merges.
+- `ci.yml`: dev shell / `nix flake check`, functions and frontend lint + tests, Dockerfile / compose / workflow linting, `npm audit`, a full stack boot test through Traefik, and GitNexus analysis. The `ci-required` job gates merges.
 - `ci-sast.yml`: SonarQube Cloud and CodeQL scans (needs the `SONARQUBE_TOKEN` and `SAST_REPORT_TOKEN` secrets).
 - `check-conventional-commit-pr-title.yml`: PR titles must follow Conventional Commits.
 
 ## CD
 
 - `release-please.yml`: on `main`, maintains a Release PR with the next version and changelog (from Conventional Commits). Merging it tags and publishes a GitHub Release.
-- `release-to-ghcr.yml`: when a release is published, builds the `backend` and `frontend` images and pushes them to GitHub Container Registry (`ghcr.io`).
+- `release-to-ghcr.yml`: when a release is published, builds the `frontend` image and pushes them to GitHub Container Registry (`ghcr.io`).

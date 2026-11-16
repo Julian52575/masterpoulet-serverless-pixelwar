@@ -1,8 +1,0 @@
-node_modules
-coverage
-generated
-.env
-.env.example
-Dockerfile
-Dev.Dockerfile
-.dockerignore

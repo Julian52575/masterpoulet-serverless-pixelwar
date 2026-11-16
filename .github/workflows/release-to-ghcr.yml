@@ -24,8 +24,6 @@ jobs:
     strategy:
       matrix:
         include: # Run 1 job for each key (not YxZ matrix)
-          - image: backend
-            context: backend
           - image: frontend
             context: frontend
       fail-fast: true # fail all if any matrix jobs fails

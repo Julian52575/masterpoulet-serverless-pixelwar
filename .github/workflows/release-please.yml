@@ -19,7 +19,7 @@ on:
     branches: [main]
     paths:
       # Application code + static assets -- an actual shippable change.
-      - "backend/**"
+      - "functions/**"
       - "frontend/**"
       - "**/*.js"
       - "**/*.jsx"

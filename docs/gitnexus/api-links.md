@@ -10,18 +10,4 @@ literal path and no type argument (see `frontend/src/services/apiClient.ts`).
 A route with no consumer is either unused or called in a way GitNexus cannot
 see. Consumers are matched by URL, so they apply to every method on the row.
 
-| route | handler | methods | consumers |
-| --- | --- | --- | --- |
-| /admin/clear | backend/src/app.js | POST |  |
-| /admin/pause | backend/src/app.js | POST |  |
-| /admin/ratelimit | backend/src/app.js | POST |  |
-| /admin/resume | backend/src/app.js | POST |  |
-| /brush | backend/src/app.js | POST |  |
-| /canvas.png | backend/src/app.js | GET |  |
-| /config | backend/src/app.js | GET |  |
-| /health | backend/src/app.js | GET |  |
-| /pixels | backend/src/app.js | POST |  |
-| /pixels/:x/:y | backend/src/app.js | GET |  |
-| /snapshots | backend/src/app.js | POST |  |
-| /snapshots/:name | backend/src/app.js | GET |  |
-| /tiles/:tx/:ty | backend/src/app.js | GET |  |
+_No routes found._

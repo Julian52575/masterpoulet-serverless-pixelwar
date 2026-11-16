@@ -123,6 +123,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # shared.test.js loads the worker's code to check the two stay compatible.
+      - name: Install snapshot-worker dependencies
+        if: matrix.function == 'get-canvas' || matrix.function == 'snapshot-notifier'
+        working-directory: functions/bot/snapshot-worker
+        run: npm ci
+
       - name: Run unit tests
         run: npm test
 

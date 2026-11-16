@@ -5,6 +5,8 @@ const path = require("node:path");
 
 const SERVICE = "get-canvas";
 const bot = path.join(__dirname, "..");
+// The worker's own dependencies are needed to load its code; CI installs them, a bare checkout may not.
+const workerReady = fs.existsSync(path.join(bot, "snapshot-worker", "node_modules"));
 const read = (service, file) => fs.readFileSync(path.join(bot, service, file), "utf8");
 
 const SHARED = {
@@ -46,7 +48,7 @@ describe("code shared with the other services", () => {
     assert.equal(require("./bucket").LATEST_MANIFEST, require(path.join(bot, "snapshot-worker", "storage")).LATEST_MANIFEST);
   });
 
-  test("reads Firestore like snapshot-worker does", async () => {
+  test("reads Firestore like snapshot-worker does", { skip: workerReady ? false : "install snapshot-worker dependencies" }, async () => {
     const { fakeFirestore } = require("./fake-firestore");
     const own = require("./canvas");
     const theirs = require(path.join(bot, "snapshot-worker", "state"));
@@ -63,7 +65,7 @@ describe("code shared with the other services", () => {
     }
   });
 
-  test("shows the canvas from a real snapshot-worker snapshot plus the pixels drawn after it", async () => {
+  test("shows the canvas from a real snapshot-worker snapshot plus the pixels drawn after it", { skip: workerReady ? false : "install snapshot-worker dependencies" }, async () => {
     const { fakeFirestore } = require("./fake-firestore");
     const { createSnapshotTaker } = require(path.join(bot, "snapshot-worker", "snapshot"));
     const { createCanvasReader: snapshotReader } = require(path.join(bot, "snapshot-worker", "state"));

@@ -5,6 +5,8 @@ const path = require("node:path");
 
 const SERVICE = "snapshot-notifier";
 const bot = path.join(__dirname, "..");
+// The worker's own dependencies are needed to load its code; CI installs them, a bare checkout may not.
+const workerReady = fs.existsSync(path.join(bot, "snapshot-worker", "node_modules"));
 const read = (service, file) => fs.readFileSync(path.join(bot, service, file), "utf8");
 
 const SHARED = {
@@ -43,7 +45,7 @@ describe("code shared with the other services", () => {
     }
   });
 
-  test("posts only the first of two real scheduled snapshots of the same hour", async () => {
+  test("posts only the first of two real scheduled snapshots of the same hour", { skip: workerReady ? false : "install snapshot-worker dependencies" }, async () => {
     const { fakeFirestore } = require(path.join(bot, "snapshot-worker", "fake-firestore"));
     const { createSnapshotTaker } = require(path.join(bot, "snapshot-worker", "snapshot"));
     const { createCanvasReader } = require(path.join(bot, "snapshot-worker", "state"));

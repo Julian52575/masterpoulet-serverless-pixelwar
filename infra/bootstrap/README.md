@@ -33,7 +33,7 @@ was created by hand. Adopt them first, then apply (it updates them in place):
 
 ```bash
 terraform init
-./import-existing.sh myenv.tfvars
+python3 import_existing.py myenv.tfvars
 terraform plan -var-file=myenv.tfvars     # review the in-place changes
 terraform apply -var-file=myenv.tfvars
 ```

@@ -6,6 +6,39 @@ Cette stack gère le contrôleur **Actions Runner Controller (ARC)** et le
 **runner scale set** officiel. Elle utilise le cluster existant et un Secret
 GitHub géré hors Terraform. Elle ne crée ni cluster, ni VM, ni credential GitHub.
 
+## Déployer les runners (méthode normale)
+
+Le déploiement passe par le workflow **Terraform Deploy Runner**
+(`.github/workflows/terraform-deploy-runner.yml`). Le PAT GitHub est un secret
+du dépôt (`ARC_GITHUB_PAT`) : seul le workflow peut le lire, donc les
+collaborateurs ne peuvent pas appliquer depuis leur PC.
+
+1. GitHub → Actions → **Terraform Deploy Runner** → *Run workflow*.
+2. Remplir les champs :
+
+   | Champ | Rôle |
+   | --- | --- |
+   | `mode` | `plan` (défaut) affiche les changements dans le résumé du job ; `apply` déploie. |
+   | `environment` | `dev` (défaut), `prod` ou `both` (dev puis prod). Prod se déploie exactement comme dev. |
+   | `allow_destroy` | Autorise l'apply à supprimer ou remplacer des ressources. Refusé sinon. |
+   | `ref` | Tag, branche ou SHA à déployer. Vide : la branche choisie. |
+
+3. Toujours lancer d'abord un `plan`, relire le résumé, puis relancer en `apply`.
+
+Détails utiles :
+
+- Un push sur `infra/runners/**` ou `scripts/arc_bootstrap.py` lance uniquement un `plan`.
+- Le job tourne sur un runner GitHub hébergé : les runners self-hosted sont ce
+  que l'on déploie.
+- Authentification GCP par Workload Identity Federation, sans clé stockée.
+- `scripts/arc_bootstrap.py` prépare le kubeconfig. En `apply`, il crée aussi le
+  namespace `arc-runners` et le Secret `arc-rw` à partir du PAT, après avoir
+  vérifié le PAT auprès de GitHub. En `plan`, il ne fait que le kubeconfig.
+- Les déploiements ne tournent pas en parallèle (un seul à la fois).
+
+La procédure manuelle de « Maintenance DEV » ci-dessous reste réservée au
+diagnostic et aux personnes qui ont accès au PAT.
+
 ## Vérification après correction du PAT, 30 octobre 2026
 
 Lors de l'intégration de `feat/serverless-deployment`, le contrôleur et le

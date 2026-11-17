@@ -247,6 +247,7 @@ jobs:
       contents: read
       id-token: write
     strategy:
+      fail-fast: false # every root/env reports its own result
       max-parallel: 2
       matrix:
         env: [dev, prod]

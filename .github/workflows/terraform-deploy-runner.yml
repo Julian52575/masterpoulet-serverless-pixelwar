@@ -60,7 +60,7 @@ jobs:
       id-token: write # workload identity federation
     environment: ${{ matrix.env }}
     env:
-      MODE: ${{ inputs.mode || 'apply' }} # TEMP: pushes apply
+      MODE: ${{ inputs.mode || 'plan' }} # pushes only plan
       TF_ENV: ${{ matrix.env }}
     defaults:
       run:

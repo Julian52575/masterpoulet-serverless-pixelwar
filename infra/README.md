@@ -75,10 +75,11 @@ infra/
 │   ├── README.md, AUDIT.md
 │   ├── backend.tf, providers.tf, variables.tf
 │   ├── main.tf, router.tf, nat.tf, outputs.tf
-│   ├── dev.tfvars, prod.tfvars
+│   ├── dev.tfvars, prod.tfvars, default.tfvars
 │   ├── backends/dev.hcl, backends/prod.hcl
-│   ├── check.py
+│   ├── check.py, scripts/check.py
 │   └── .gitignore, .terraform.lock.hcl
+├── serverless/functions/   # Discord bot et fonctions, voir son README
 └── gke/
     ├── README.md
     ├── backend.tf, providers.tf, variables.tf
@@ -96,6 +97,10 @@ n'a pas de `.tf` racine : un plan lancé là ne gère pas les deux stacks.
 | --- | --- | --- |
 | foundation | VPC, subnet et secondaires, Cloud Router, Cloud NAT | Projet, API et bucket existants. |
 | gke | Cluster, pool, compte de service et attribution IAM des nœuds | Lit le VPC/subnet existants avec des data sources. |
+| runners | Contrôleur et scale set ARC des runners GitHub | Cluster GKE existant. |
+| serverless/functions | Cloud Functions du bot Discord et du web | Projet et APIs ; indépendant de foundation, GKE et runners. |
+
+`gke` et `runners` ne sont pas déployés par `terraform-deploy.yml` (voir `.github/workflows`). La CI les planifie avec les autres racines : le compte de déploiement doit pouvoir lire leur state et leurs ressources IAM.
 
 Créer **foundation puis GKE** ; supprimer **GKE puis foundation**. Les states
 séparés permettent de supprimer le cluster après une démo sans supprimer le
@@ -493,7 +498,7 @@ puis inventorier les ressources restantes. Ne pas détruire le réseau d'un coll
 
 | Symptôme | Cause probable | Action |
 | --- | --- | --- |
-| Init réussit dans un dossier vide, rien à planifier | Commande lancée dans infra/ au lieu d'une stack. | Se placer dans infra/foundation/ ou infra/gke/, lire les .tf. |
+| Init réussit dans un dossier vide, rien à planifier | Commande lancée dans infra/ au lieu d'une stack. | Se placer dans infra/foundation/, infra/gke/ ou infra/serverless/functions/, lire les .tf. |
 | Backend initialization required / backend différent | Métadonnées locales d'une autre cible. | Relire backend/tfvars et init -reconfigure ; aucune migration. |
 | Plan créant/supprimant tout dans un projet inattendu | Mauvais state, mauvais couple, application partielle. | Stopper et vérifier bucket/préfixe/workspace/projet ; aucun reset/import improvisé. |
 | Validate échoue | Provider absent, mauvais type, bloc ou conflit. | Lire l'erreur, corriger ou initialiser les providers. |

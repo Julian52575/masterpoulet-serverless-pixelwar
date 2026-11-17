@@ -81,7 +81,7 @@ python3 scripts/create_tfbackends.py --env myenv --bucket <project-id>-state   #
 
 It asks before overwriting an existing file (`--force` skips the question, `--stack` limits it to one stack), and it does not write the tfvars files or check that the bucket exists.
 
-The `infra/foundation` stack (VPC, subnet, router, NAT) is independent of the functions today; deploy it only if you want the network. It takes `myenv.tfvars` (`project_id`, `network_name`, `subnet_name`, `subnet_cidr`, see `dev.tfvars`) and `backends/myenv.hcl` with `prefix = "foundation/myenv"`.
+The `infra/foundation` stack (VPC, subnet, router, NAT) is independent of the functions today; deploy it only if you want the network. It takes `myenv.tfvars` (`project_id`, `network_name`, `subnet_name`, `subnet_cidr`, `gke_pods_cidr`, `gke_services_cidr`, see `dev.tfvars`; the two GKE ranges are required even if you never deploy GKE) and `backends/myenv.hcl` with `prefix = "foundation/myenv"`.
 
 ## 1.5 Provide the secrets
 
@@ -239,4 +239,4 @@ Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
 - `release-please.yml`: on `main`, maintains a Release PR with the next version and changelog (from Conventional Commits). Merging it tags and publishes a GitHub Release.
 - `release-to-ghcr.yml`: when a release is published, builds the `frontend` image and pushes them to GitHub Container Registry (`ghcr.io`).
-- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation` then `infra/serverless/functions` per environment (see [1.9](#19-deploy-from-github-optional)).
+- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation` then `infra/serverless/functions` per environment (the GKE runner stacks `infra/gke` and `infra/runners` are deployed by hand, see `infra/README.md`) (see [1.9](#19-deploy-from-github-optional)).

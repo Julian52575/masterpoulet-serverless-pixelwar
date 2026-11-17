@@ -49,8 +49,12 @@ output then gives the new `WIF_PROVIDER` and `DEPLOYER_SA`.
 
 ## What it grants
 
-GitHub identities whose `repository` claim equals `github_repository` (any
-branch, tag or environment) can impersonate `terraform-deployer`. The deployer
+GitHub identities whose `repository` claim equals `github_repository` can
+impersonate `terraform-deployer`. By default that is any branch, tag or environment;
+set `github_environment = "prod"` to also require that GitHub environment (the
+OIDC `environment` claim), so only jobs gated by it can reach this project.
+An adopted state bucket keeps its hand-set lifecycle and encryption rules
+(`ignore_changes`). The deployer
 holds the project roles listed in `main.tf` (`deployer_roles`), enough for the
 network, GKE, runners and functions stacks. It is broad on purpose: it manages
 IAM bindings. Trim the list if you deploy fewer stacks.

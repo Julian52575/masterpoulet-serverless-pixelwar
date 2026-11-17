@@ -24,6 +24,12 @@ variable "github_repository" {
   }
 }
 
+variable "github_environment" {
+  description = "Also require this GitHub environment (for example prod) in the OIDC token. null accepts any workflow of the repository."
+  type        = string
+  default     = null
+}
+
 variable "state_bucket_name" {
   description = "Globally unique bucket holding the Terraform state of every other stack."
   type        = string

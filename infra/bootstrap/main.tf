@@ -1,4 +1,9 @@
 locals {
+  attribute_condition = join(" && ", compact([
+    "assertion.repository == \"${var.github_repository}\"",
+    var.github_environment == null ? "" : "assertion.environment == \"${var.github_environment}\"",
+  ]))
+
   apis = [
     "iam", "iamcredentials", "sts", "cloudresourcemanager", "serviceusage", "storage",
   ]
@@ -45,6 +50,11 @@ resource "google_storage_bucket" "state" {
     enabled = true
   }
 
+  # An adopted bucket may carry hand-set hardening (lifecycle, encryption rules) this stack does not model.
+  lifecycle {
+    ignore_changes = [lifecycle_rule, encryption]
+  }
+
   depends_on = [google_project_service.api]
 }
 
@@ -82,7 +92,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   }
 
   # Without a condition any GitHub repository could use the provider.
-  attribute_condition = "assertion.repository == \"${var.github_repository}\""
+  attribute_condition = local.attribute_condition
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"

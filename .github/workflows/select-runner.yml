@@ -64,7 +64,7 @@ jobs:
             return 1
           }
 
-          declare -A label=([dev]=masterpoulet-gke-runners [prod]=masterpoulet-gke-runners-prod)
+          declare -A label=([dev]=masterpoulet-dev-gke [prod]=masterpoulet-prod-gke)
           declare -A result=([dev]=ubuntu-latest [prod]=ubuntu-latest)
           declare -A pids=()
           for env in $(jq -r '.[]' <<<"$ENVIRONMENTS"); do

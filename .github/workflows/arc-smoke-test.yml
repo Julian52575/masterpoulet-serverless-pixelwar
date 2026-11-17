@@ -58,7 +58,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ENV_NAME: ${{ matrix.env }}
-          LABEL: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
+          LABEL: ${{ matrix.env == 'prod' && 'masterpoulet-prod-gke' || 'masterpoulet-dev-gke' }}
           DEADLINE: "120"
         run: |
           set -uo pipefail
@@ -85,7 +85,7 @@ jobs:
 
   smoke-test:
     needs: scope
-    runs-on: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
+    runs-on: ${{ matrix.env == 'prod' && 'masterpoulet-prod-gke' || 'masterpoulet-dev-gke' }}
     timeout-minutes: 5
     strategy:
       fail-fast: false

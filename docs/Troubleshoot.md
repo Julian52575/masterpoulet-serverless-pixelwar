@@ -19,7 +19,7 @@ Known incidents with their cause and fix. Rules for adding entries are in [CONTR
 
 ## ARC scale set label rejected by actionlint
 
-**Error:** actionlint reports `label "masterpoulet-gke-runners" is unknown`, even
+**Error:** actionlint reports `label "masterpoulet-dev-gke" is unknown`, even
 though the ARC smoke test succeeds on GKE.
 
 **Occurrence:** 2026-10-30, integration of `feat/serverless-deployment` into
@@ -28,7 +28,7 @@ though the ARC smoke test succeeds on GKE.
 **Cause:** custom runner scale set names are not built-in GitHub-hosted labels.
 
 **Solution:** list the exact scale set name in `self-hosted-runner.labels` in
-`.github/actionlint.yaml`. Keep `runs-on: masterpoulet-gke-runners` in the workflow.
+`.github/actionlint.yaml`. Keep `runs-on: masterpoulet-dev-gke` in the workflow.
 Do not suppress the label check or replace it with a GitHub-hosted runner.
 
 ## Prisma.sql missing after a fresh npm install

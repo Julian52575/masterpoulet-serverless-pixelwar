@@ -47,7 +47,7 @@ Les namespaces et le Secret existants restent gérés hors de cette stack.
 
 | Paramètre | Valeur |
 | --- | --- |
-| Release / `runs-on` | `masterpoulet-gke-runners` |
+| Release / `runs-on` | `masterpoulet-dev-gke` |
 | Namespace | `arc-runners` |
 | Chart officiel | `gha-runner-scale-set`, version `0.15.0` |
 | Dépôt GitHub | `https://github.com/Julian52575/masterpoulet-serverless-pixelwar` |
@@ -146,7 +146,7 @@ d'abord une exécution réussie et observer la création puis la suppression du 
 ## Workflow et preuve d'exécution
 
 `.github/workflows/arc-smoke-test.yml` utilise uniquement
-`runs-on: masterpoulet-gke-runners`, `permissions: {}`, aucun checkout et aucun
+`runs-on: masterpoulet-dev-gke`, `permissions: {}`, aucun checkout et aucun
 secret supplémentaire. Il vérifie Linux et affiche le hostname et un message
 de réussite. Le job a un timeout de trois minutes une fois démarré ; ce timeout
 ne borne pas le temps passé dans la file d'attente.

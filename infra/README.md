@@ -79,6 +79,7 @@ infra/
 │   ├── backends/dev.hcl, backends/prod.hcl
 │   ├── check.py, scripts/check.py
 │   └── .gitignore, .terraform.lock.hcl
+├── bootstrap/              # WIF + bucket de state, appliqué à la main
 ├── serverless/functions/   # Discord bot et fonctions, voir son README
 └── gke/
     ├── README.md
@@ -97,6 +98,7 @@ n'a pas de `.tf` racine : un plan lancé là ne gère pas les deux stacks.
 | --- | --- | --- |
 | foundation | VPC, subnet et secondaires, Cloud Router, Cloud NAT | Projet, API et bucket existants. |
 | gke | Cluster, pool, compte de service et attribution IAM des nœuds | Lit le VPC/subnet existants avec des data sources. |
+| bootstrap | APIs IAM, bucket de state, compte de déploiement et Workload Identity Federation GitHub | Application **manuelle** avec un compte propriétaire du projet ; hors CI. Voir [bootstrap/README.md](bootstrap/README.md). |
 | runners | Contrôleur et scale set ARC des runners GitHub | Cluster GKE existant. |
 | serverless/functions | Cloud Functions du bot Discord et du web | Projet et APIs ; indépendant de foundation, GKE et runners. |
 

@@ -140,7 +140,7 @@ In your server, try `/draw 10 10 red` and `/get`. The full checklist is in secti
 
 The `Terraform Deploy` workflow (`.github/workflows/terraform-deploy.yml`) deploys the `dev` and `prod` environments. It needs, per GitHub environment:
 
-- Workload Identity Federation from GitHub to a deployer service account in your project. This is not created by this repository: set it up in Google Cloud, then store `WIF_PROVIDER` and `DEPLOYER_SA` as variables.
+- Workload Identity Federation from GitHub to a deployer service account in your project. Create it once, by hand, with [`infra/bootstrap`](infra/bootstrap/README.md): it also creates the state bucket and prints the `WIF_PROVIDER` and `DEPLOYER_SA` variables to set.
 - The Discord values above, as GitHub variables and secrets.
 - `infra/*/dev.tfvars` and `backends/dev.hcl` (and the `prod` ones) pointing at your own projects and buckets.
 

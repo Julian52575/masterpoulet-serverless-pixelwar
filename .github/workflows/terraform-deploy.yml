@@ -55,7 +55,7 @@ jobs:
   select-runner:
     permissions:
       actions: write
-    uses: ./.github/workflows/select-runner.yml
+    uses: ./.github/workflows/select-runner.yml # zizmor: ignore[self-repository] -- actionlint rejects `$/`
     with:
       # Tag pushes have no inputs and deploy both
       environments: ${{ inputs.environment == 'both' || !inputs.environment && '["dev","prod"]' || format('["{0}"]', inputs.environment) }}

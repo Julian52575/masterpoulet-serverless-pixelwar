@@ -241,7 +241,7 @@ jobs:
   select-terraform-runner:
     permissions:
       actions: write
-    uses: ./.github/workflows/select-runner.yml
+    uses: ./.github/workflows/select-runner.yml # zizmor: ignore[self-repository] -- actionlint rejects `$/`
     with:
       environments: '["dev","prod"]'
 

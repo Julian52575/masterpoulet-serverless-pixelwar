@@ -78,6 +78,10 @@ jobs:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SA }}
 
+      # gke-gcloud-auth-plugin (run by kubectl) needs an active gcloud account, which the credentials file alone doesn't give.
+      - name: Activate gcloud account
+        run: gcloud auth login --cred-file="$GOOGLE_GHA_CREDS_PATH" --quiet
+
       - name: Kubeconfig only (plan)
         if: env.MODE == 'plan'
         run: ../../scripts/arc_bootstrap.py "$TF_ENV" --credentials-only

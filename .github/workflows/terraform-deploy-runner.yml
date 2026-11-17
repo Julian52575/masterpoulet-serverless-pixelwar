@@ -1,4 +1,4 @@
-name: Deploy runners
+name: Terraform Deploy Runner
 on:
   workflow_dispatch:
     inputs:
@@ -21,12 +21,12 @@ on:
     paths:
       - infra/runners/**
       - scripts/arc_bootstrap.py
-      - .github/workflows/deploy-runners.yml
+      - .github/workflows/terraform-deploy-runner.yml
 permissions:
   contents: read
-run-name: "Deploy runners ${{ inputs.mode || 'plan' }} ${{ inputs.environment || 'dev' }}"
+run-name: "Terraform Deploy Runner ${{ inputs.mode || 'plan' }} ${{ inputs.environment || 'dev' }}"
 concurrency:
-  group: deploy-runners
+  group: terraform-deploy-runner
   cancel-in-progress: false
 jobs:
   legs:
@@ -93,7 +93,7 @@ jobs:
         run: |
           terraform plan -input=false -no-color -var-file="${TF_ENV}.tfvars" -out=tfplan
           {
-            echo "## Deploy runners ${MODE}: ${TF_ENV}"
+            echo "## Terraform Deploy Runner ${MODE}: ${TF_ENV}"
             echo "Ref \`${GITHUB_REF_NAME}\` at \`$(git rev-parse HEAD)\`"
             echo '```'
             terraform show -no-color tfplan

@@ -52,3 +52,9 @@ variable "controller_resources" {
     limits   = { cpu = "500m", memory = "256Mi" }
   }
 }
+
+variable "runner_scale_set_name" {
+  description = "Scale set name, used as the `runs-on` label; workflows pick dev or prod runners by it."
+  type        = string
+  default     = "masterpoulet-dev-gke"
+}

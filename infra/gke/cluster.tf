@@ -77,11 +77,15 @@ resource "google_container_cluster" "gke" {
   }
 
   lifecycle {
+    ignore_changes = [node_config, initial_node_count]
     precondition {
       condition     = can(regex("^${var.region}-[a-z]$", var.zone))
       error_message = "The zonal cluster must be in the subnet's region."
     }
   }
 
-  depends_on = [google_project_iam_member.nodes]
+  depends_on = [
+    google_project_iam_member.nodes,
+    google_project_service.container,
+  ]
 }

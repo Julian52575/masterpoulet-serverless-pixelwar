@@ -6,7 +6,7 @@ resource "helm_release" "arc_controller" {
   chart            = "gha-runner-scale-set-controller"
   version          = var.controller_chart_version
 
-  atomic           = true
+  atomic           = false
   wait             = true
   timeout          = 300
   max_history      = 3

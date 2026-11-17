@@ -2,9 +2,14 @@ name: ARC smoke test
 
 on:
   workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment(s) whose GKE runners to check"
+        type: choice
+        options: [dev, prod, both]
+        default: both
   push:
-    branches: [feat/terraform-c04-gke]
-    paths: [.github/workflows/arc-smoke-test.yml]
+    branches: [15-feature-self-run-terraform-related-workflows-checks]
 
 permissions: {}
 
@@ -12,15 +17,134 @@ concurrency:
   group: arc-smoke-test-${{ github.ref }}
   cancel-in-progress: false
 
+run-name: "ARC smoke test ${{ inputs.env || 'both' }}"
+
 jobs:
-  smoke-test:
-    runs-on: masterpoulet-gke-runners
-    timeout-minutes: 3
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.scope.outputs.environments }}
     steps:
-      - name: Verify the GKE runner
+      - id: scope
+        env:
+          ENVIRONMENT: ${{ inputs.env || 'both' }}
+        run: |
+          case "$ENVIRONMENT" in
+            dev) envs='["dev"]' ;;
+            prod) envs='["prod"]' ;;
+            both) envs='["dev","prod"]' ;;
+            *) echo "::error::unknown env $ENVIRONMENT"; exit 1 ;;
+          esac
+          echo "environments=$envs" >> "$GITHUB_OUTPUT"
+          echo "Checking: $envs"
+
+  # A job queued on a label with no runner waits forever, so a watchdog on a hosted runner
+  # polls this run's jobs and cancels the run when a smoke job never starts.
+  watchdog:
+    needs: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJSON(needs.scope.outputs.environments) }}
+    name: watchdog (${{ matrix.env }})
+    steps:
+      - name: Wait for the GKE runner to pick up the job
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ENV_NAME: ${{ matrix.env }}
+          LABEL: ${{ matrix.env == 'prod' && 'masterpoulet-prod-gke' || 'masterpoulet-dev-gke' }}
+          DEADLINE: "120"
+        run: |
+          set -uo pipefail
+          job="smoke-test ($ENV_NAME)"
+          echo "Watching '$job' for label $LABEL (deadline ${DEADLINE}s)"
+          end=$((SECONDS + DEADLINE))
+          while :; do
+            # `gh run view --json jobs` has no runner name; the REST API does.
+            row=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs" --paginate \
+              --jq ".jobs[] | select(.name == \"$job\") | [.status, (.conclusion // \"-\"), (if (.runner_name // \"\") == \"\" then \"-\" else .runner_name end)] | @tsv")
+            printf '[%3ss] %s: status/conclusion/runner = %s\n' "$SECONDS" "$job" "${row:-<job not created yet>}"
+            status=${row%%$'\t'*}
+            runner=${row##*$'\t'}
+            if [ -n "$row" ] && [ "$runner" != "-" ]; then
+              echo "::notice::$ENV_NAME: GKE runner picked up the job"
+              echo "- **$ENV_NAME**: runner picked up the job (\`$LABEL\`)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [ "$status" = completed ]; then
+              echo "::error::$ENV_NAME: job ended without ever running on a runner"
+              echo "- **$ENV_NAME**: job ended without a runner (\`$LABEL\`)" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            [ "$SECONDS" -lt "$end" ] || break
+            sleep 5
+          done
+          echo "::error::$ENV_NAME: no runner for '$LABEL' started the job within ${DEADLINE}s"
+          echo "- **$ENV_NAME**: NO runner for \`$LABEL\` within ${DEADLINE}s" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+  # Queued jobs never end on their own; cancel only once every watchdog has its verdict.
+  reaper:
+    needs: watchdog
+    if: always() && needs.watchdog.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write # cancel the run
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh run cancel "$GITHUB_RUN_ID"
+
+  smoke-test:
+    needs: scope
+    runs-on: ${{ matrix.env == 'prod' && 'masterpoulet-prod-gke' || 'masterpoulet-dev-gke' }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJSON(needs.scope.outputs.environments) }}
+    name: smoke-test (${{ matrix.env }})
+    steps:
+      - name: Report runner state
+        shell: bash
+        env:
+          ENV_NAME: ${{ matrix.env }}
+        run: |
+          set -uo pipefail
+          echo "::group::Runner"
+          printf 'Environment:     %s\n' "$ENV_NAME"
+          printf 'Runner name:     %s\n' "$RUNNER_NAME"
+          printf 'Runner OS/arch:  %s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
+          printf 'Hostname:        %s\n' "$(hostname)"
+          printf 'Kernel:          %s\n' "$(uname -srm)"
+          echo "::endgroup::"
+
+          echo "::group::Resources"
+          printf 'CPUs: %s\n' "$(nproc)"
+          free -h || true
+          df -h / || true
+          echo "::endgroup::"
+
+          echo "::group::Kubernetes"
+          printf 'KUBERNETES_SERVICE_HOST=%s\n' "${KUBERNETES_SERVICE_HOST:-<unset>}"
+          echo "::endgroup::"
+
+          {
+            echo "### ARC smoke test: $ENV_NAME"
+            echo "Runner: \`$RUNNER_NAME\` on \`$(hostname)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the runner
         shell: bash
         run: |
           set -euo pipefail
           test "$(uname -s)" = Linux
-          printf 'Runner hostname: %s\n' "$(hostname)"
-          printf 'ARC GKE smoke test succeeded on Linux\n'
+          echo "GKE runner OK ($RUNNER_NAME)"

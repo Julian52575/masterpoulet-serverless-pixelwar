@@ -1,5 +1,5 @@
 resource "helm_release" "arc_runner_scale_set" {
-  name             = "masterpoulet-gke-runners"
+  name             = var.runner_scale_set_name
   namespace        = "arc-runners"
   create_namespace = false
   repository       = "oci://ghcr.io/actions/actions-runner-controller-charts"
@@ -19,7 +19,7 @@ resource "helm_release" "arc_runner_scale_set" {
   values = [yamlencode({
     githubConfigUrl    = "https://github.com/Julian52575/masterpoulet-serverless-pixelwar"
     githubConfigSecret = "arc-rw"
-    runnerScaleSetName = "masterpoulet-gke-runners"
+    runnerScaleSetName = var.runner_scale_set_name
     minRunners         = 0
     maxRunners         = 2
     controllerServiceAccount = {

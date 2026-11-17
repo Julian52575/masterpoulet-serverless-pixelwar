@@ -1,0 +1,83 @@
+# Picks each environment's GKE runners when one starts within the deadline, else
+# GitHub-hosted. The scale sets idle at 0 runners, so the runner API cannot tell:
+# we dispatch a probe job on each and see whether it starts.
+name: Select runner
+on:
+  workflow_call:
+    inputs:
+      environments:
+        description: "JSON array of environments to probe, e.g. [\"dev\"]"
+        type: string
+        required: true
+    outputs:
+      dev:
+        description: "runs-on label for dev jobs"
+        value: ${{ jobs.select.outputs.dev }}
+      prod:
+        description: "runs-on label for prod jobs"
+        value: ${{ jobs.select.outputs.prod }}
+permissions: {}
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch and cancel the probes
+    outputs:
+      dev: ${{ steps.pick.outputs.dev }}
+      prod: ${{ steps.pick.outputs.prod }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # PR merge refs cannot be dispatched; the probe file must exist on this ref.
+          REF: ${{ github.head_ref || github.ref_name }}
+          ENVIRONMENTS: ${{ inputs.environments }}
+          DEADLINE: "120"
+        run: |
+          probe() {
+            local env=$1 runner=$2 nonce id status end
+            nonce="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${env}-${RANDOM}"
+            gh workflow run runner-probe.yml --ref "$REF" -f "nonce=$nonce" -f "runner=$runner" \
+              || { echo "probe dispatch failed"; return 1; }
+
+            for _ in $(seq 15); do
+              id=$(gh run list --workflow runner-probe.yml --event workflow_dispatch -L 30 \
+                --json databaseId,displayTitle \
+                --jq ".[] | select(.displayTitle | endswith(\"$nonce\")) | .databaseId" | head -n1)
+              [ -n "$id" ] && break
+              sleep 2
+            done
+            [ -n "$id" ] || { echo "probe run not found"; return 1; }
+
+            end=$((SECONDS + DEADLINE))
+            while [ "$SECONDS" -lt "$end" ]; do
+              status=$(gh run view "$id" --json status --jq .status)
+              if [ "$status" = in_progress ] || [ "$status" = completed ]; then
+                return 0
+              fi
+              sleep 5
+            done
+            gh run cancel "$id" || true
+            echo "no runner within ${DEADLINE}s"
+            return 1
+          }
+
+          declare -A label=([dev]=masterpoulet-dev-gke [prod]=masterpoulet-prod-gke)
+          declare -A result=([dev]=ubuntu-latest [prod]=ubuntu-latest)
+          declare -A pids=()
+          for env in $(jq -r '.[]' <<<"$ENVIRONMENTS"); do
+            [ -n "${label[$env]:-}" ] || { echo "::error::unknown environment $env"; exit 1; }
+            ( probe "$env" "${label[$env]}" > "probe-$env.log" 2>&1 ) &
+            pids[$env]=$!
+          done
+          for env in "${!pids[@]}"; do
+            if wait "${pids[$env]}"; then
+              result[$env]=${label[$env]}
+              echo "::notice::$env: using ${label[$env]}"
+            else
+              echo "::notice::$env: $(tail -n1 "probe-$env.log"); using GitHub-hosted runners"
+            fi
+          done
+          for env in dev prod; do echo "$env=${result[$env]}" >> "$GITHUB_OUTPUT"; done

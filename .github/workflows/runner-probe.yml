@@ -1,0 +1,21 @@
+# Dispatched by select-runner.yml: it only has to start on the GKE runners.
+name: Runner probe
+run-name: "Runner probe ${{ inputs.nonce }}"
+on:
+  workflow_dispatch:
+    inputs:
+      nonce:
+        description: "Lets the caller find this run"
+        type: string
+        required: true
+      runner:
+        description: "Runner scale set to probe"
+        type: string
+        required: true
+permissions: {}
+jobs:
+  probe:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 2
+    steps:
+      - run: echo "GKE runner available"

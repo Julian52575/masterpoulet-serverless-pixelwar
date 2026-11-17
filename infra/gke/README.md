@@ -208,13 +208,13 @@ Installer Google Cloud CLI officiel, kubectl et le plugin selon
 est installé, ajouter les composants :
 
 ```powershell
-gcloud.cmd components install kubectl gke-gcloud-auth-plugin
+gcloud components install kubectl gke-gcloud-auth-plugin
 if ($LASTEXITCODE -ne 0) { throw 'Installation incomplète.' }
 gke-gcloud-auth-plugin --version
 kubectl version --client
-gcloud.cmd auth login
+gcloud auth login
 if ($LASTEXITCODE -ne 0) { throw 'Connexion Google échouée.' }
-gcloud.cmd auth list
+gcloud auth list
 ```
 
 Utiliser son propre compte disposant d'accès GKE, de la permission
@@ -227,7 +227,7 @@ exécuter cette connexion kubectl avec le compte gcloud par défaut.
 Récupérer la configuration du **cluster DEV** :
 
 ```powershell
-gcloud.cmd container clusters get-credentials masterpoulet-dev-gke --project=masterpoulet-dev --zone=europe-west1-b --dns-endpoint
+gcloud container clusters get-credentials masterpoulet-dev-gke --project=masterpoulet-dev --zone=europe-west1-b --dns-endpoint
 if ($LASTEXITCODE -ne 0) { throw 'Impossible de configurer la connexion GKE.' }
 kubectl config current-context
 kubectl get nodes
@@ -264,7 +264,7 @@ kubectl get pods -n kube-system
 kubectl get namespaces
 kubectl get events -A --sort-by=.lastTimestamp
 kubectl auth can-i list pods --namespace=kube-system
-gcloud.cmd container node-pools describe github-runners --cluster=masterpoulet-dev-gke --zone=europe-west1-b --project=masterpoulet-dev --format='yaml(status,locations,autoscaling,config.machineType,config.diskSizeGb,config.diskType,networkConfig,upgradeSettings)'
+gcloud container node-pools describe github-runners --cluster=masterpoulet-dev-gke --zone=europe-west1-b --project=masterpoulet-dev --format='yaml(status,locations,autoscaling,config.machineType,config.diskSizeGb,config.diskType,networkConfig,upgradeSettings)'
 ```
 
 Les nœuds devraient être Ready ; examiner Pods Pending, CrashLoopBackOff et les
@@ -344,7 +344,7 @@ if ($gkeConfirmation -cne 'SUPPRIMER') { throw 'Suppression annulée.' }
 terraform apply dev-gke-destroy.tfplan
 if ($LASTEXITCODE -ne 0) { throw 'Suppression incomplète : examiner le state.' }
 terraform state list
-gcloud.cmd container clusters list --project=masterpoulet-dev
+gcloud container clusters list --project=masterpoulet-dev
 ```
 
 L'application d'un plan enregistré ne demande pas un second yes. Cette procédure

@@ -102,7 +102,7 @@ n'a pas de `.tf` racine : un plan lancé là ne gère pas les deux stacks.
 | runners | Contrôleur et scale set ARC des runners GitHub | Cluster GKE existant. |
 | serverless/functions | Cloud Functions du bot Discord et du web | Projet et APIs ; indépendant de foundation, GKE et runners. |
 
-`gke` et `runners` ne sont pas déployés par `terraform-deploy.yml` (voir `.github/workflows`). La CI les planifie avec les autres racines : le compte de déploiement doit pouvoir lire leur state et leurs ressources IAM.
+`gke` et `runners` ne sont pas déployés par `terraform-deploy.yml`. `runners` a son propre workflow, `terraform-deploy-runner.yml` (voir [runners/README.md](runners/README.md#déployer-les-runners-méthode-normale)) ; `gke` reste manuel. La CI les planifie avec les autres racines : le compte de déploiement doit pouvoir lire leur state et leurs ressources IAM.
 
 Créer **foundation puis GKE** ; supprimer **GKE puis foundation**. Les states
 séparés permettent de supprimer le cluster après une démo sans supprimer le

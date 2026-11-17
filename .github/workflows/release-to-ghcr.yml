@@ -25,7 +25,7 @@ jobs:
       matrix:
         include: # Run 1 job for each key (not YxZ matrix)
           - image: frontend
-            context: frontend
+            context: app/frontend
       fail-fast: true # fail all if any matrix jobs fails
     env:
       IMAGE: ghcr.io/julian52575/masterpoulet-serverless-pixelwar-${{ matrix.image }}

@@ -54,3 +54,7 @@ google-cloud-cli-linux-x86_64.tar.gz
 
 *.swp
 *.terraform/
+*.containers/*rulian-test*
+.build/
+tmp/
+*.tfstate*

@@ -1,7 +1,7 @@
 # Local frontend stack: a Traefik reverse proxy in front of the React frontend.
-# The API is the serverless functions in ./functions, deployed by infra/functions.
+# The API is the serverless functions in ./app/functions, deployed by infra/serverless/functions.
 #
-#   http://localhost:8000/           -> frontend (Vite dev server, ./frontend)
+#   http://localhost:8000/           -> frontend (Vite dev server, ./app/frontend)
 #   http://localhost:8080/           -> Traefik dashboard (insecure, local only)
 
 services:
@@ -26,10 +26,10 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./app/frontend
       dockerfile: Dev.Dockerfile
     volumes:
-      - ./frontend:/app
+      - ./app/frontend:/app
       - frontend-node-modules:/app/node_modules
     labels:
       - traefik.enable=true

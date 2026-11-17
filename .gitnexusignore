@@ -8,9 +8,9 @@
 docs/gitnexus/
 
 # Stale .jsx duplicates of App.tsx / main.tsx (Vite resolves the .tsx first,
-# see frontend/vite.config.js). Indexed, they duplicate App/main symbols.
-frontend/src/App.jsx
-frontend/src/main.jsx
+# see app/frontend/vite.config.js). Indexed, they duplicate App/main symbols.
+app/frontend/src/App.jsx
+app/frontend/src/main.jsx
 
 # Written by the openssf-scorecard workflow.
 SCORECARD.md

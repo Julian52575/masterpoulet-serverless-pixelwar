@@ -16,9 +16,23 @@ jobs:
   destroy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.env }}
+    strategy:
+      # Functions first: they depend on foundation.
+      max-parallel: 1
+      matrix:
+        root: [serverless/functions, foundation]
+    name: destroy (${{ matrix.root }}, ${{ inputs.env }})
+    env:
+      # Terraform ignores TF_VAR_* a root does not declare.
+      TF_VAR_discord_client_id: ${{ vars.DISCORD_CLIENT_ID }}
+      TF_VAR_app_url: ${{ vars.APP_URL }}
+      TF_VAR_discord_public_key: ${{ secrets.DISCORD_PUBLIC_KEY }}
+      TF_VAR_discord_oauth_client_secret: ${{ secrets.DISCORD_OAUTH_CLIENT_SECRET }}
+      TF_VAR_discord_snapshot_webhook: ${{ secrets.DISCORD_SNAPSHOT_WEBHOOK }}
+      TF_VAR_discord_bot_token: ${{ secrets.DISCORD_BOT_TOKEN }}
     defaults:
       run:
-        working-directory: infra/foundation
+        working-directory: infra/${{ matrix.root }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

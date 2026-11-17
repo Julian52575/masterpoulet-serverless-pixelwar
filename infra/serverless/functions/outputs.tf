@@ -1,5 +1,5 @@
 output "gateway_host" {
-  description = "Host to put in the Discord portal and in OAUTH_REDIRECT_URI."
+  description = "Host to put in the Discord portal; OAUTH_REDIRECT_URI is derived from it."
   value       = google_api_gateway_gateway.gateway.default_hostname
 }
 

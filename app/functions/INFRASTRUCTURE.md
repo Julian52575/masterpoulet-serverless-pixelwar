@@ -54,7 +54,7 @@ Each function refuses to start when a required variable is missing or invalid, a
 | web-proxy | `DRAW_TOPIC` | `draw-pixel` |
 | web-auth | `DISCORD_CLIENT_ID` | the Discord application id |
 | | `DISCORD_CLIENT_SECRET` | **secret** `discord-oauth-client-secret` |
-| | `OAUTH_REDIRECT_URI` | `https://<gateway host>/api/auth/callback` (must also be added in the Discord portal, section 11) |
+| | `OAUTH_REDIRECT_URI` | `https://<gateway host>/api/auth/callback`, set by Terraform from the gateway (must also be added in the Discord portal, section 11) |
 | | `APP_URL` | the website URL, e.g. `https://<site host>/` |
 | draw-pixel | | none |
 | admin-cmd | `ADMIN_USER_IDS`, `ADMIN_ROLE_IDS` | comma-separated Discord user ids / role ids of the admins; if both are empty, every admin command is refused |

@@ -16,7 +16,7 @@ locals {
   }
 
   project_bindings = merge([
-    for fn in keys(local.functions) : {
+    for fn in keys(local.function_specs) : {
       for role in concat(local.project_roles[fn], ["roles/logging.logWriter", "roles/telemetry.tracesWriter"]) :
       "${fn}/${role}" => { fn = fn, role = role }
     }

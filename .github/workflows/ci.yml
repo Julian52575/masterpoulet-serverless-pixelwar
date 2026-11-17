@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: frontend
+        working-directory: app/frontend
     steps:
       - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
@@ -73,7 +73,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: app/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -99,7 +99,7 @@ jobs:
           exit 1
 
   functions:
-    name: functions (${{ matrix.function }})
+    name: bot functions (${{ matrix.function }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -108,7 +108,7 @@ jobs:
         function: [discord-proxy, draw-pixel, admin-cmd, get-canvas, snapshot-worker, snapshot-notifier, web-proxy, web-auth]
     defaults:
       run:
-        working-directory: functions/bot/${{ matrix.function }}
+        working-directory: app/functions/bot/${{ matrix.function }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -118,7 +118,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: functions/bot/${{ matrix.function }}/package-lock.json
+          cache-dependency-path: app/functions/bot/${{ matrix.function }}/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -126,7 +126,7 @@ jobs:
       # shared.test.js loads the worker's code to check the two stay compatible.
       - name: Install snapshot-worker dependencies
         if: matrix.function == 'get-canvas' || matrix.function == 'snapshot-notifier'
-        working-directory: functions/bot/snapshot-worker
+        working-directory: app/functions/bot/snapshot-worker
         run: npm ci
 
       - name: Run unit tests
@@ -207,28 +207,62 @@ jobs:
           docker.io/rhysd/actionlint:1.7.12
           -color
 
-  # Mirrors terraform-ci.yml: plans each infra root against each real backend.
+  # Every directory that declares a Terraform backend is a root -- a moved,
+  # added or removed root is picked up without touching this workflow.
+  terraform-roots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      roots: ${{ steps.find.outputs.roots }}
+    steps:
+      - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Find the Terraform roots
+        id: find
+        run: |
+          set -euo pipefail
+          roots=$(git ls-files -z -- '*.tf' \
+            | xargs -0 -r grep -lE '^\s*backend\s+"' \
+            | xargs -r -n1 dirname | sort -u | jq -R . | jq -sc .)
+          if [ "$roots" = "[]" ]; then
+            echo "::error::no Terraform root (a .tf file with a backend block) found"
+            exit 1
+          fi
+          echo "roots=$roots" >> "$GITHUB_OUTPUT"
+          echo "Terraform roots: $roots"
+
+  # Plans each root against each real backend.
   # OIDC needs id-token, so fork PRs (no secrets/vars) cannot pass this job.
   terraform:
+    name: terraform (${{ matrix.root }}, ${{ matrix.env }})
+    needs: terraform-roots
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
     strategy:
-      max-parallel: 1 # dev must succeed before prd
+      max-parallel: 2
       matrix:
         env: [dev, prod]
-        root: [foundation, functions]
+        root: ${{ fromJSON(needs.terraform-roots.outputs.roots) }}
     environment: ${{ matrix.env }}
     env:
-      # Per-environment GitHub variables; only infra/functions declares them.
+      # Per-environment GitHub variables; Terraform ignores TF_VAR_* a root does not declare.
       TF_VAR_discord_client_id: ${{ vars.DISCORD_CLIENT_ID }}
-      TF_VAR_oauth_redirect_uri: ${{ vars.OAUTH_REDIRECT_URI }}
       TF_VAR_app_url: ${{ vars.APP_URL }}
+      TF_VAR_discord_public_key: ${{ secrets.DISCORD_PUBLIC_KEY }}
+      TF_VAR_discord_oauth_client_secret: ${{ secrets.DISCORD_OAUTH_CLIENT_SECRET }}
+      TF_VAR_discord_snapshot_webhook: ${{ secrets.DISCORD_SNAPSHOT_WEBHOOK }}
+      TF_VAR_discord_bot_token: ${{ secrets.DISCORD_BOT_TOKEN }}
     defaults:
       run:
-        working-directory: infra/${{ matrix.root }}
+        working-directory: ${{ matrix.root }}
     steps:
       - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
@@ -270,15 +304,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: frontend, workspace: frontend }
-          - { name: discord-proxy, workspace: functions/bot/discord-proxy }
-          - { name: draw-pixel, workspace: functions/bot/draw-pixel }
-          - { name: admin-cmd, workspace: functions/bot/admin-cmd }
-          - { name: get-canvas, workspace: functions/bot/get-canvas }
-          - { name: snapshot-worker, workspace: functions/bot/snapshot-worker }
-          - { name: snapshot-notifier, workspace: functions/bot/snapshot-notifier }
-          - { name: web-proxy, workspace: functions/bot/web-proxy }
-          - { name: web-auth, workspace: functions/bot/web-auth }
+          - { name: frontend, workspace: app/frontend }
+          - { name: discord-proxy, workspace: app/functions/bot/discord-proxy }
+          - { name: draw-pixel, workspace: app/functions/bot/draw-pixel }
+          - { name: admin-cmd, workspace: app/functions/bot/admin-cmd }
+          - { name: get-canvas, workspace: app/functions/bot/get-canvas }
+          - { name: snapshot-worker, workspace: app/functions/bot/snapshot-worker }
+          - { name: snapshot-notifier, workspace: app/functions/bot/snapshot-notifier }
+          - { name: web-proxy, workspace: app/functions/bot/web-proxy }
+          - { name: web-auth, workspace: app/functions/bot/web-auth }
     env:
       WS: ${{ matrix.workspace }}
       NAME: ${{ matrix.name }}
@@ -555,6 +589,7 @@ jobs:
       - compose-lint
       - workflow-lint
       - zizmor
+      - terraform-roots
       - terraform
       - gitnexus
       - stack

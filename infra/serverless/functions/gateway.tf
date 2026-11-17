@@ -1,4 +1,11 @@
 locals {
+  # Cloud Run URLs are predictable, so the gateway need not read them from the functions
+  # (web-auth reads the gateway host: referencing the functions here would be a cycle).
+  fn_url = {
+    for fn in toset([for r in local.routes : r.fn]) :
+    fn => "https://${fn}-${data.google_project.this.number}.${var.region}.run.app"
+  }
+
   routes = {
     "/interactions"      = { method = "post", fn = "discord-proxy" }
     "/api/auth/login"    = { method = "get", fn = "web-auth" }
@@ -17,8 +24,8 @@ locals {
           operationId = replace(trimprefix("${r.method}${path}", "/"), "/[^a-zA-Z0-9]/", "_")
           responses   = { "200" = { description = "ok" } }
           "x-google-backend" = {
-            address          = google_cloudfunctions2_function.fn[r.fn].service_config[0].uri
-            jwt_audience     = google_cloudfunctions2_function.fn[r.fn].service_config[0].uri
+            address          = local.fn_url[r.fn]
+            jwt_audience     = local.fn_url[r.fn]
             path_translation = "APPEND_PATH_TO_ADDRESS"
           }
         }

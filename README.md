@@ -1,13 +1,166 @@
 # serverless-pixelwar
 
+A shared pixel canvas drawn from Discord slash commands and a website. The backend is serverless on Google Cloud (Cloud Functions, Pub/Sub, Firestore, API Gateway), described in [`app/functions/INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md) and deployed with the Terraform in [`infra/`](infra/).
+
+1. [Quick start](#1-quick-start): create the Discord bot and the Google Cloud project, then deploy with the Terraform here.
+2. [Developer experience](#2-developer-experience): local stack, tooling, CI/CD.
+
+See [CONTRIBUTOR.md](CONTRIBUTOR.md) for project conventions.
+
+---
+
+# 1. Quick start
+
+This is the bare minimum that Terraform does **not** do for you: a Discord application, a Google Cloud project with billing, a state bucket, and a few values. Everything else (APIs, functions, Pub/Sub, Firestore, gateway, secrets) comes from `terraform apply`.
+
+## 1.1 Prerequisites
+
+- [`gcloud`](https://cloud.google.com/sdk/docs/install), [Terraform](https://developer.hashicorp.com/terraform/install) **>= 1.11** (write-only secrets), Node.js (to register slash commands).
+- A Google account that can create a project and link a billing account, and a Discord account that can manage a server.
+- On Nix, `nix develop` gives you most tools (Terraform is unfree: `NIXPKGS_ALLOW_UNFREE=1`).
+
+Pick an environment name for your files, for example `myenv`. It is used in `myenv.tfvars` and `backends/myenv.hcl` below.
+
+## 1.2 Create the Discord application
+
+1. Open the [Developer Portal](https://discord.com/developers/applications), **New Application**.
+2. *General Information*: copy the **Application ID** and the **Public Key**.
+3. *OAuth2*: **Reset Secret** and copy the **Client Secret**.
+4. *Bot*: **Reset Token** and copy the **bot token**.
+5. In your Discord server, create the channel that receives snapshots, then *Channel settings → Integrations → Webhooks → New Webhook* and copy the **webhook URL**.
+6. Optional: enable *User Settings → Advanced → Developer Mode*, then copy your **user id** and the **id of an admin role** (right click → Copy ID). Also copy the **server id**; you need it to register the commands.
+
+Two more portal settings need the gateway address, so they come after the deploy ([step 1.7](#17-finish-in-the-discord-portal)).
+
+## 1.3 Create the Google Cloud project
+
+```bash
+gcloud auth login
+gcloud auth application-default login      # what Terraform uses (not `gcloud config`)
+
+gcloud projects create <project-id>
+gcloud billing accounts list
+gcloud billing projects link <project-id> --billing-account=<ACCOUNT_ID>
+
+# Terraform state bucket (must exist before `terraform init`)
+gcloud storage buckets create gs://<project-id>-state --project=<project-id> \
+  --location=europe-west1 --uniform-bucket-level-access
+gcloud storage buckets update gs://<project-id>-state --versioning
+```
+
+Your account needs the Owner role on the project. The Compute and other APIs are enabled by Terraform.
+
+## 1.4 Write the Terraform files
+
+Terraform takes the project from the **tfvars** file and the state location from the **backend** file; `gcloud config set project` has no effect. The two stacks must use **different state prefixes**, or one will try to delete the other's resources.
+
+`infra/serverless/functions/myenv.tfvars`:
+
+```hcl
+project_id        = "<project-id>"
+region            = "europe-west1"
+discord_client_id = "<application id>"
+app_url           = "https://<your site>/"        # where Discord login sends users back; for tests use http://localhost:5173/
+admin_user_ids    = ["<your discord user id>"]    # optional
+admin_role_ids    = ["<admin role id>"]           # optional
+```
+
+`infra/serverless/functions/backends/myenv.hcl`:
+
+```hcl
+bucket = "<project-id>-state"
+prefix = "functions/myenv"
+```
+
+`scripts/create_tfbackends.py` writes both backend files (functions and foundation) for you, and refuses identical prefixes:
+
+```bash
+python3 scripts/create_tfbackends.py                                    # asks for env, bucket and prefixes
+python3 scripts/create_tfbackends.py --env myenv --bucket <project-id>-state   # no prompts
+```
+
+It asks before overwriting an existing file (`--force` skips the question, `--stack` limits it to one stack), and it does not write the tfvars files or check that the bucket exists.
+
+The `infra/foundation` stack (VPC, subnet, router, NAT) is independent of the functions today; deploy it only if you want the network. It takes `myenv.tfvars` (`project_id`, `network_name`, `subnet_name`, `subnet_cidr`, see `dev.tfvars`) and `backends/myenv.hcl` with `prefix = "foundation/myenv"`.
+
+## 1.5 Provide the secrets
+
+The four Discord values are never written to files: pass them as environment variables. Terraform stores them in Secret Manager as write-only versions, so they stay out of the plan and the state.
+
+```bash
+export TF_VAR_discord_public_key="<public key>"
+export TF_VAR_discord_oauth_client_secret="<client secret>"
+export TF_VAR_discord_bot_token="<bot token>"
+export TF_VAR_discord_snapshot_webhook="<webhook url>"
+```
+
+Placeholders pass validation if you only want to test the deploy, but the Discord features will not work. To change a value later, update the variable and bump `secrets_version` in the tfvars file (Terraform cannot see changes to write-only values).
+
+## 1.6 Deploy
+
+```bash
+cd infra/serverless/functions
+terraform init -reconfigure -backend-config=backends/myenv.hcl
+terraform plan -var-file=myenv.tfvars -out=plan
+terraform apply plan
+terraform output gateway_host
+```
+
+Review the plan's **destroy** count first; on a fresh project it should be 0.
+
+If the first apply fails with `API not enabled yet`, wait a minute and run it again.
+
+If it fails with `Database already exists` (or a `409` for a bucket that already exists), that resource was created outside Terraform's state. Import it, then plan and apply again (a plan made before the import is stale):
+
+```bash
+terraform import -var-file=myenv.tfvars google_firestore_database.default "projects/<project-id>/databases/(default)"
+terraform import -var-file=myenv.tfvars google_storage_bucket.gcf_sources "gcf-v2-sources-<project-number>-<region>"
+```
+
+## 1.7 Finish in the Discord portal
+
+Use the `gateway_host` output:
+
+1. *General Information → Interactions Endpoint URL*: `https://<gateway_host>/interactions`. Discord sends a signed PING when you save; it accepts the URL only if the deploy worked.
+2. *OAuth2 → Redirects*: add `https://<gateway_host>/api/auth/callback`.
+3. *OAuth2 → URL Generator*: scopes `bot` and `applications.commands`; open the generated URL to invite the bot to your server.
+4. Register the slash commands once per server:
+
+   ```bash
+   cd app/functions/bot/discord-proxy && npm ci
+   DISCORD_APPLICATION_ID=<application id> DISCORD_BOT_TOKEN=<bot token> \
+   DISCORD_GUILD_ID=<server id> node register-commands.js
+   ```
+
+## 1.8 Check it works
+
+In your server, try `/draw 10 10 red` and `/get`. The full checklist is in section 12 of [`INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md).
+
+## 1.9 Deploy from GitHub (optional)
+
+The `Terraform Deploy` workflow (`.github/workflows/terraform-deploy.yml`) deploys the `dev` and `prod` environments. It needs, per GitHub environment:
+
+- Workload Identity Federation from GitHub to a deployer service account in your project. This is not created by this repository: set it up in Google Cloud, then store `WIF_PROVIDER` and `DEPLOYER_SA` as variables.
+- The Discord values above, as GitHub variables and secrets.
+- `infra/*/dev.tfvars` and `backends/dev.hcl` (and the `prod` ones) pointing at your own projects and buckets.
+
+`scripts/gh_secrets.py` sets everything one by one and shows what is already set:
+
+```bash
+python3 scripts/gh_secrets.py              # asks which categories (ci, foundation, functions)
+python3 scripts/gh_secrets.py --list       # status only
+```
+
+More on the functions stack: [`infra/serverless/functions/README.md`](infra/serverless/functions/README.md); on the network: [`infra/foundation/README.md`](infra/foundation/README.md).
+
+---
+
+# 2. Developer experience
+
 On linux, the easiest way to run and test the project is through nix.
 `just up` starts the compose stack, and traefik which redirects to the frontend, can be access on port ${PROXY_PORT}.
 
-## Resources
-
-See [Contributor.md](CONTRIBUTOR.md) for project conventions.
-
-## Quick start
+## Run locally
 
 ```bash
 cp .env.example .env
@@ -55,7 +208,7 @@ Run `just` to see all available command and their summary.
 browser ──► proxy (Traefik :8000) ──► frontend (Vite, :3000)
 ```
 
-The API is no longer part of the compose stack: it is the serverless functions in [`functions/`](functions/INFRASTRUCTURE.md), deployed by `infra/functions`.
+The API is no longer part of the compose stack: it is the serverless functions in [`app/functions/`](app/functions/INFRASTRUCTURE.md), deployed by `infra/serverless/functions`.
 
 | Service | Role | Link to others |
 |---|---|---|
@@ -86,3 +239,4 @@ Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
 - `release-please.yml`: on `main`, maintains a Release PR with the next version and changelog (from Conventional Commits). Merging it tags and publishes a GitHub Release.
 - `release-to-ghcr.yml`: when a release is published, builds the `frontend` image and pushes them to GitHub Container Registry (`ghcr.io`).
+- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation` then `infra/serverless/functions` per environment (see [1.9](#19-deploy-from-github-optional)).

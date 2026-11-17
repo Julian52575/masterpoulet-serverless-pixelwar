@@ -25,7 +25,7 @@ resource "google_firebaserules_ruleset" "firestore" {
   source {
     files {
       name    = "firestore.rules"
-      content = file("${path.module}/../../functions/firestore/firestore.rules")
+      content = file("${path.module}/../../../app/functions/firestore/firestore.rules")
     }
   }
 
@@ -64,6 +64,14 @@ resource "google_secret_manager_secret" "secret" {
   }
 
   depends_on = [google_project_service.api]
+}
+
+# Write-only: Terraform sends the value to Secret Manager but never keeps it in the plan or state.
+resource "google_secret_manager_secret_version" "secret" {
+  for_each               = google_secret_manager_secret.secret
+  secret                 = each.value.id
+  secret_data_wo         = local.secret_values[each.key]
+  secret_data_wo_version = var.secrets_version
 }
 
 resource "google_firebase_web_app" "site" {

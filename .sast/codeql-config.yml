@@ -9,11 +9,11 @@ name: "serverless-pixelwar CodeQL"
 
 # --- What to analyse -----------------------------------------------------
 # Mirror .sast/sonar-project.properties' sonar.sources: the serverless functions under
-# functions/bot/ and the Vite + React app under frontend/. paths / paths-ignore are
+# app/functions/bot/ and the Vite + React app under app/frontend/. paths / paths-ignore are
 # honoured because JavaScript/TypeScript is an interpreted language for CodeQL.
 paths:
-  - functions/bot
-  - frontend/src
+  - app/functions/bot
+  - app/frontend/src
 
 # Build output, vendored drops and dependencies -- not our code.
 paths-ignore:

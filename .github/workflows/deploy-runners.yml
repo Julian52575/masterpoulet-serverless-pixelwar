@@ -1,0 +1,124 @@
+name: Deploy runners
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "plan only shows changes in the job summary; apply also deploys them"
+        type: choice
+        options: [plan, apply]
+        default: plan
+      environment:
+        description: "Environment(s) to deploy; both runs dev before prod"
+        type: choice
+        options: [dev, prod, both]
+        default: dev
+      allow_destroy:
+        description: "Allow apply to delete or replace resources"
+        type: boolean
+        default: false
+  push:
+    branches: [15-feature-self-run-terraform-related-workflows-checks]
+    paths:
+      - infra/runners/**
+      - scripts/arc_bootstrap.py
+      - .github/workflows/deploy-runners.yml
+permissions:
+  contents: read
+run-name: "Deploy runners ${{ inputs.mode || 'plan' }} ${{ inputs.environment || 'dev' }}"
+concurrency:
+  group: deploy-runners
+  cancel-in-progress: false
+jobs:
+  legs:
+    runs-on: ubuntu-latest
+    outputs:
+      envs: ${{ steps.build.outputs.envs }}
+    steps:
+      - id: build
+        env:
+          ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+        run: |
+          case "$ENVIRONMENT" in
+            both) envs='["dev","prod"]' ;;
+            dev | prod) envs=$(jq -nc --arg e "$ENVIRONMENT" '[$e]') ;;
+            *) echo "::error::unknown environment $ENVIRONMENT"; exit 1 ;;
+          esac
+          echo "envs=$envs" >> "$GITHUB_OUTPUT"
+
+  # Hosted on purpose: the self-hosted runners are what this deploys.
+  deploy:
+    needs: legs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      max-parallel: 1
+      matrix:
+        env: ${{ fromJSON(needs.legs.outputs.envs) }}
+    name: deploy runners (${{ matrix.env }})
+    permissions:
+      contents: read
+      id-token: write # workload identity federation
+    environment: ${{ matrix.env }}
+    env:
+      MODE: ${{ inputs.mode || 'plan' }} # pushes only plan
+      TF_ENV: ${{ matrix.env }}
+    defaults:
+      run:
+        shell: nix develop --command bash -euo pipefail {0}
+        working-directory: infra/runners
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-devshell # zizmor: ignore[self-repository] -- actionlint rejects `$/`
+        with:
+          warm: "false"
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+
+      - name: Kubeconfig only (plan)
+        if: env.MODE == 'plan'
+        run: ../../scripts/arc_bootstrap.py "$TF_ENV" --credentials-only
+
+      - name: Kubeconfig, namespace and secret (apply)
+        if: env.MODE == 'apply'
+        env:
+          GITHUB_PAT: ${{ secrets.ARC_GITHUB_PAT }}
+        run: ../../scripts/arc_bootstrap.py "$TF_ENV"
+
+      - run: terraform init -input=false -backend-config="backends/${TF_ENV}.hcl"
+      - name: Plan
+        run: |
+          terraform plan -input=false -no-color -var-file="${TF_ENV}.tfvars" -out=tfplan
+          {
+            echo "## Deploy runners ${MODE}: ${TF_ENV}"
+            echo "Ref \`${GITHUB_REF_NAME}\` at \`$(git rev-parse HEAD)\`"
+            echo '```'
+            terraform show -no-color tfplan
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Destroy guard
+        env:
+          ALLOW_DESTROY: ${{ inputs.allow_destroy || false }}
+        run: |
+          destroyed=$(terraform show -json tfplan \
+            | jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | .address')
+          [ -z "$destroyed" ] && exit 0
+          {
+            echo "### Resources to delete or replace"
+            echo '```'
+            echo "$destroyed"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MODE" = apply ] && [ "$ALLOW_DESTROY" != true ]; then
+            echo "::error::Plan deletes resources; rerun with allow_destroy to proceed:"
+            echo "$destroyed"
+            exit 1
+          fi
+          echo "::warning::Plan deletes resources:"
+          echo "$destroyed"
+      - name: Apply
+        if: env.MODE == 'apply'
+        run: terraform apply -input=false -auto-approve tfplan

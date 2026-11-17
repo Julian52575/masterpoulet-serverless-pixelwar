@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Prepare a GKE cluster for infra/runners: kubeconfig, arc-runners namespace, arc-rw Secret.
 
-Usage: scripts/arc_bootstrap.py dev|prod
+Usage: scripts/arc_bootstrap.py dev|prod [--credentials-only]
+--credentials-only stops after the kubeconfig (enough for `terraform plan`).
 The PAT comes from $GITHUB_PAT or a hidden prompt; it is only sent to kubectl on stdin.
 """
 import base64
@@ -33,9 +34,12 @@ def run(*cmd: str, stdin: str | None = None) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2 or sys.argv[1] not in ("dev", "prod"):
+    args = sys.argv[1:]
+    credentials_only = "--credentials-only" in args
+    args = [a for a in args if a != "--credentials-only"]
+    if len(args) != 1 or args[0] not in ("dev", "prod"):
         sys.exit(__doc__)
-    env = sys.argv[1]
+    env = args[0]
 
     for tool in ("gcloud", "kubectl", "gke-gcloud-auth-plugin"):
         if not shutil.which(tool):
@@ -46,6 +50,10 @@ def main() -> None:
 
     run("gcloud", "container", "clusters", "get-credentials", cluster,
         f"--zone={zone}", f"--project={project}", "--dns-endpoint")
+
+    if credentials_only:
+        print(f"{env}: context {context} ready")
+        return
 
     # Apply (not create) so reruns are idempotent and also rotate the token.
     namespace = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": NAMESPACE}}

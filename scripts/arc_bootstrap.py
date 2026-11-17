@@ -3,7 +3,7 @@
 
 Usage: scripts/arc_bootstrap.py dev|prod [--credentials-only]
 --credentials-only stops after the kubeconfig (enough for `terraform plan`).
-The PAT comes from $GITHUB_PAT or a hidden prompt; it is only sent to kubectl on stdin.
+The PAT comes from $GITHUB_PAT or a hidden prompt, is checked against GitHub, then goes to kubectl on stdin.
 """
 import base64
 import getpass
@@ -13,6 +13,8 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 NAMESPACE = "arc-runners"
@@ -27,6 +29,26 @@ def tfvar(env: str, name: str) -> str:
     if not m:
         sys.exit(f"{name} not found in {env}.tfvars")
     return m.group(1)
+
+
+def check_token(token: str) -> None:
+    """Ask GitHub for a registration token, as ARC does, so a bad PAT fails here."""
+    m = re.search(r'githubConfigUrl\s*=\s*"https://github\.com/([^"/]+/[^"/]+)"',
+                  (ROOT / "scale-set.tf").read_text(encoding="utf-8"))
+    if not m:
+        sys.exit("githubConfigUrl not found in scale-set.tf")
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{m.group(1)}/actions/runners/registration-token",
+        method="POST",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=30).close()
+    except urllib.error.HTTPError as e:
+        hint = {401: "token invalid, expired or revoked",
+                403: "token valid but lacks repo Administration (read/write)",
+                404: "token cannot see the repo or is not an admin of it"}.get(e.code, "unexpected")
+        sys.exit(f"GitHub rejected the PAT for {m.group(1)}: HTTP {e.code} ({hint})")
 
 
 def run(*cmd: str, stdin: str | None = None) -> None:
@@ -59,9 +81,14 @@ def main() -> None:
     namespace = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": NAMESPACE}}
     run("kubectl", f"--context={context}", "apply", "-f", "-", stdin=json.dumps(namespace))
 
-    token = os.environ.get("GITHUB_PAT") or getpass.getpass("GitHub PAT (hidden): ")
+    token = os.environ.get("GITHUB_PAT", "").strip()
+    if not token:
+        if not sys.stdin.isatty():
+            sys.exit("GITHUB_PAT is empty: check the environment's ARC_GITHUB_PAT secret")
+        token = getpass.getpass("GitHub PAT (hidden): ").strip()
     if not token:
         sys.exit("empty token")
+    check_token(token)
     secret = {
         "apiVersion": "v1",
         "kind": "Secret",

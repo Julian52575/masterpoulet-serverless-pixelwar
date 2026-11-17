@@ -1,0 +1,10 @@
+FROM node:24-slim
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+COPY local.js worker.js envelope.js logger.js png.js render.js state.js storage.js snapshot.js config.js ./
+USER node
+ENV PORT=8080
+EXPOSE 8080
+CMD ["node", "local.js"]

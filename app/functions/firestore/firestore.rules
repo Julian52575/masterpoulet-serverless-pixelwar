@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /pixels/{pixel} {
+      allow get: if true;
+      allow list: if request.query.limit != null && request.query.limit <= 65536;
+      allow create, update, delete: if false;
+    }
+
+    match /state/canvas {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

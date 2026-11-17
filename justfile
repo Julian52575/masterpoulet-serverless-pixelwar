@@ -169,11 +169,11 @@ database-pipe DATABASE_FILE:
 
 #### Dependencies
 
-# Run `npm audit fix --package-lock-only` in frontend and backend, abort if vulnerabilities remain, then commit the lockfile changes
+# Run `npm audit fix --package-lock-only` in frontend, abort if vulnerabilities remain, then commit the lockfile changes
 audit-fix:
     #!/usr/bin/env bash
     set -euo pipefail
-    dirs=(frontend backend)
+    dirs=(frontend)
     # name@version for every package in the lockfile, to diff before/after
     lockversions() { node -e 'const p=require(process.argv[1]).packages||{};for(const[k,v]of Object.entries(p))if(k&&v.version)console.log(k.replace(/^.*node_modules\//,"")+"@"+v.version)' "$PWD/$1/package-lock.json" | sort -u; }
     tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
@@ -201,7 +201,7 @@ audit-fix:
             ' "$tmp/$d.before" "$tmp/$d.after" | sort)"
         if [[ -n "$changes" ]]; then body+="${d}:"$'\n'"${changes}"$'\n\n'; fi
     done
-    mapfile -t files < <(git status --porcelain -- {frontend,backend}/package.json {frontend,backend}/package-lock.json | awk '{print $2}')
+    mapfile -t files < <(git status --porcelain -- frontend/package.json frontend/package-lock.json | awk '{print $2}')
     if [[ ${#files[@]} -eq 0 ]]; then echo "✅ nothing to fix"; exit 0; fi
     git add -- "${files[@]}"
     git commit -sS -m "chore: npm audit fix" -m "${body:-No dependency version changes.}" -- "${files[@]}"

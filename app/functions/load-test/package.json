@@ -1,0 +1,14 @@
+{
+  "name": "pixelwar-load-test",
+  "version": "1.0.0",
+  "description": "Burst of web draws through the API Gateway to show serverless scaling and queue buffering",
+  "private": true,
+  "bin": "burst.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node burst.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

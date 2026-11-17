@@ -67,7 +67,7 @@ Every HTTP route GitNexus found, and the files that call it. CI fails when this
 file is out of date: regenerate it with \`just gitnexus-docs-generate\` and commit it.
 
 A frontend call only shows up here when it goes through \`apiClient\` with a
-literal path and no type argument (see \`frontend/src/services/apiClient.ts\`).
+literal path and no type argument (see \`app/frontend/src/services/apiClient.ts\`).
 A route with no consumer is either unused or called in a way GitNexus cannot
 see. Consumers are matched by URL, so they apply to every method on the row.
 

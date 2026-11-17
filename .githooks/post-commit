@@ -9,7 +9,7 @@ set -uo pipefail
 git symbolic-ref -q HEAD >/dev/null || exit 0
 command -v just >/dev/null || exit 0
 
-locks=(frontend/package.json frontend/package-lock.json backend/package.json backend/package-lock.json)
+locks=(frontend/package.json frontend/package-lock.json)
 # don't sweep the user's own lockfile edits into the audit commit
 [ -z "$(git status --porcelain -- "${locks[@]}")" ] || exit 0
 

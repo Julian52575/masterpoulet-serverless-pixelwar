@@ -44,7 +44,8 @@ def main():
         r = tf("import", f"-var-file={var_file}", "-input=false", addr, ident)
         if r.returncode:
             reason = re.sub(r"\x1b\[[0-9;]*m|[│╷╵]", "", r.stderr)
-            print("   skipped:", " ".join(reason.split())[:300])
+            missing = "Cannot find binding" in reason or "non-existent" in reason
+            print("   not there yet, apply will create it" if missing else "   skipped: " + " ".join(reason.split())[:300])
 
     adopt("google_storage_bucket.state", f"{project}/{bucket}")
     adopt("google_service_account.deployer", sa)
@@ -55,7 +56,8 @@ def main():
         f"{sa} roles/iam.workloadIdentityUser "
         f"principalSet://iam.googleapis.com/{pool_name}/attribute.repository/{repo}",
     )
-    roles = sorted(set(re.findall(r'"(roles/[A-Za-z.]+)"', (HERE / "main.tf").read_text())))
+    block = re.search(r"deployer_roles = \[(.*?)\]", (HERE / "main.tf").read_text(), re.S).group(1)
+    roles = sorted(set(re.findall(r'"(roles/[A-Za-z.]+)"', block)))
     for role in roles:
         adopt(f'google_project_iam_member.deployer["{role}"]', f"{project} {role} serviceAccount:{email}")
 

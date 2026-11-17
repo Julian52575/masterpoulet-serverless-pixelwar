@@ -20,6 +20,7 @@ let
       helm = "sha256-BAOoiuIJE9EbEKJGe1AIdyH+p1gXNtprnTmS9TV/5Us=";
       kubectl = "sha256-ZWkf9362+kTJCLd6EILJ8JLDuXM7XO+r7A0RBIkOIag=";
       gcloud = "sha256-FQOm/NponR4QE6Qh4shYUOf1g4LAvnBkh3teGhA4vGQ=";
+      gkeAuthPlugin = "sha256-fKK+Mdb6ojK3M80+kbmOGCdxUWcy1yMMGRlrUc3n+CM=";
       zizmor = "sha256-0YX3Jr2vkt94JzIX390k681rDvSM8853b/V2K24TjJk=";
     };
     aarch64-linux = {
@@ -27,6 +28,7 @@ let
       helm = "sha256-jPj2bsvCUqyPfwbMpoq6iFCN3946ajT+sWeK0WlLT4g=";
       kubectl = "sha256-/3SfS3jZxPHshzB9+bUBGe2BniCUqpgQy5rP/DKGyMc=";
       gcloud = "sha256-VHxcKK5EmoYjOe2+c+QlQHOzMHKjZEY/WBrev4lMXPo=";
+      gkeAuthPlugin = "sha256-n1PPldS+v+MTzWF0HXWXG0zTQZT98AeA11RhHSKgNSg=";
       zizmor = "sha256-N+671XYqRPJi2Uh1QxsUptJAKZHpCmhRE+qXuLQb6DM=";
     };
     x86_64-darwin = {
@@ -34,6 +36,7 @@ let
       helm = "sha256-NL7E66dhulwW0ZZe5rj1sKvlmTl0qAInTipPBBiJPYk=";
       kubectl = "sha256-aFE4HEhv9u3WkWI+PWXIfLmlsCiH/4+7s42KAxt0g4c=";
       gcloud = "sha256-OxOAsxGOm7idwQi26ykeQUaCiUFdzSozzfxV4lcNPt4=";
+      gkeAuthPlugin = "sha256-j29qXWdxfgGM01I3Tqib8MKeeBJAPuLsFd8wAPw2byk=";
       zizmor = "sha256-cq5ju4W2cinAYkLwQZXLQ5J+n6tfQ4A8ZDTccBpRfWE=";
     };
   }.${system};
@@ -94,6 +97,20 @@ rec {
     '';
   };
 
+  # Exec-auth plugin the GKE kubeconfig needs (kubectl, Terraform's Helm provider).
+  # Component archive of the pinned gcloud release: refresh the URL stamp and hash
+  # from components-v<gcloud version>.json.
+  gke-gcloud-auth-plugin = stdenvNoCC.mkDerivation rec {
+    pname = "gke-gcloud-auth-plugin";
+    version = "590.0.0";
+    src = fetchurl {
+      url = "https://dl.google.com/dl/cloudsdk/channels/rapid/components/google-cloud-sdk-gke-gcloud-auth-plugin-${p.gcloud}-20261016073856.tar.gz";
+      hash = hashes.gkeAuthPlugin;
+    };
+    sourceRoot = ".";
+    installPhase = "install -Dm755 bin/gke-gcloud-auth-plugin $out/bin/gke-gcloud-auth-plugin";
+  };
+
   # nixpkgs 25.05 ships 1.8.0; CI runs this same version
   zizmor = stdenvNoCC.mkDerivation rec {
     pname = "zizmor";
@@ -122,5 +139,5 @@ rec {
     dontNpmBuild = true;
   };
 
-  all = [ terraform helm kubectl gcloud pin-github-action zizmor ];
+  all = [ terraform helm kubectl gcloud gke-gcloud-auth-plugin pin-github-action zizmor ];
 }

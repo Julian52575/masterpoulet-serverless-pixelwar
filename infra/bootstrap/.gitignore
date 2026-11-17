@@ -6,3 +6,5 @@ crash.log
 *.auto.tfvars
 # Commit .terraform.lock.hcl; it pins provider versions and checksums.
 myenv.tfvars
+prod.tfvars
+terraform.tfstate.d/

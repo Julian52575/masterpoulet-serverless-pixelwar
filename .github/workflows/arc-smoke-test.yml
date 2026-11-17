@@ -38,17 +38,54 @@ jobs:
           echo "environments=$envs" >> "$GITHUB_OUTPUT"
           echo "Checking: $envs"
 
-  select-runner:
+  # A job queued on a label with no runner waits forever, so a watchdog on a hosted runner
+  # polls this run's jobs and cancels the run when a smoke job never starts.
+  watchdog:
     needs: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
-      actions: write
-    uses: ./.github/workflows/select-runner.yml # zizmor: ignore[self-repository] -- actionlint rejects `$/`
-    with:
-      environments: ${{ needs.scope.outputs.environments }}
+      actions: write # cancel the run
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJSON(needs.scope.outputs.environments) }}
+    name: watchdog (${{ matrix.env }})
+    steps:
+      - name: Wait for the GKE runner to pick up the job
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ENV_NAME: ${{ matrix.env }}
+          LABEL: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
+          DEADLINE: "120"
+        run: |
+          set -uo pipefail
+          job="smoke-test ($ENV_NAME)"
+          echo "Watching '$job' for label $LABEL (deadline ${DEADLINE}s)"
+          end=$((SECONDS + DEADLINE))
+          while :; do
+            row=$(gh run view "$GITHUB_RUN_ID" --json jobs \
+              --jq ".jobs[] | select(.name == \"$job\") | [.status, (.conclusion // \"-\"), (.runnerName // \"-\")] | @tsv")
+            printf '[%3ss] %s: status/conclusion/runner = %s\n' "$SECONDS" "$job" "${row:-<job not created yet>}"
+            status=${row%%$'\t'*}
+            if [ "$status" = in_progress ] || [ "$status" = completed ]; then
+              echo "::notice::$ENV_NAME: GKE runner picked up the job"
+              echo "- **$ENV_NAME**: runner picked up the job (\`$LABEL\`)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            [ "$SECONDS" -lt "$end" ] || break
+            sleep 5
+          done
+          echo "::error::$ENV_NAME: no runner for '$LABEL' started the job within ${DEADLINE}s"
+          echo "- **$ENV_NAME**: NO runner for \`$LABEL\` within ${DEADLINE}s; run cancelled" >> "$GITHUB_STEP_SUMMARY"
+          gh run cancel "$GITHUB_RUN_ID" || true
+          exit 1
 
   smoke-test:
-    needs: [scope, select-runner]
-    runs-on: ${{ matrix.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
+    needs: scope
+    runs-on: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
     timeout-minutes: 5
     strategy:
       fail-fast: false
@@ -60,14 +97,10 @@ jobs:
         shell: bash
         env:
           ENV_NAME: ${{ matrix.env }}
-          SELECTED: ${{ matrix.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
-          EXPECTED: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
         run: |
           set -uo pipefail
           echo "::group::Runner"
           printf 'Environment:     %s\n' "$ENV_NAME"
-          printf 'Expected label:  %s\n' "$EXPECTED"
-          printf 'Selected label:  %s\n' "$SELECTED"
           printf 'Runner name:     %s\n' "$RUNNER_NAME"
           printf 'Runner OS/arch:  %s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
           printf 'Hostname:        %s\n' "$(hostname)"
@@ -80,31 +113,18 @@ jobs:
           df -h / || true
           echo "::endgroup::"
 
-          echo "::group::Kubernetes pod"
+          echo "::group::Kubernetes"
           printf 'KUBERNETES_SERVICE_HOST=%s\n' "${KUBERNETES_SERVICE_HOST:-<unset>}"
-          printf 'Pod hostname looks like ARC: %s\n' "$(hostname | grep -q runner && echo yes || echo no)"
           echo "::endgroup::"
 
           {
             echo "### ARC smoke test: $ENV_NAME"
-            echo "| Field | Value |"
-            echo "| --- | --- |"
-            echo "| Expected label | \`$EXPECTED\` |"
-            echo "| Selected label | \`$SELECTED\` |"
-            echo "| Runner | \`$RUNNER_NAME\` |"
+            echo "Runner: \`$RUNNER_NAME\` on \`$(hostname)\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Assert the GKE runner was used
+      - name: Verify the runner
         shell: bash
-        env:
-          ENV_NAME: ${{ matrix.env }}
-          SELECTED: ${{ matrix.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
-          EXPECTED: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
         run: |
           set -euo pipefail
           test "$(uname -s)" = Linux
-          if [ "$SELECTED" != "$EXPECTED" ]; then
-            echo "::error::$ENV_NAME: no GKE runner started in time, fell back to $SELECTED"
-            exit 1
-          fi
-          echo "$ENV_NAME: GKE runner OK ($RUNNER_NAME)"
+          echo "GKE runner OK ($RUNNER_NAME)"

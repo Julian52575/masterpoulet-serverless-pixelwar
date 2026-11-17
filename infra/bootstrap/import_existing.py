@@ -29,6 +29,8 @@ def main():
 
     project, repo, bucket = var("project_id"), var("github_repository"), var("state_bucket_name")
     pool, prov, sa_id = var("pool_id"), var("provider_id"), var("deployer_account_id")
+    if project == "my-gcp-project":
+        sys.exit("default.tfvars still holds placeholders: copy it, set your real values, and pass that file.")
     email = f"{sa_id}@{project}.iam.gserviceaccount.com"
     sa = f"projects/{project}/serviceAccounts/{email}"
     pool_name = f"projects/{project}/locations/global/workloadIdentityPools/{pool}"

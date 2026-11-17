@@ -30,9 +30,9 @@ variable "state_bucket_name" {
 }
 
 variable "state_bucket_force_destroy" {
-  description = "Delete the state bucket with its contents on destroy. Keep true only if the whole project is disposable."
+  description = "Delete the state bucket with its contents on destroy. Set true (and apply) only when the whole project is disposable."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "pool_id" {

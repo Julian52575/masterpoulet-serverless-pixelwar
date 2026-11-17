@@ -64,8 +64,9 @@ terraform destroy -var-file=myenv.tfvars
 ```
 
 - Run it locally: the deployer being destroyed cannot run its own destroy.
-- `state_bucket_force_destroy` defaults to `true`, so the bucket and the state
-  inside it are deleted. Set it to `false` to keep them (apply first, then destroy).
+- `state_bucket_force_destroy` defaults to `false`: destroy fails on a bucket that
+  still holds state, which protects it. For a fully disposable project, set it to
+  `true` and apply first, then destroy (the bucket and its state are deleted).
 - Google keeps a deleted pool and provider for 30 days and reserves their ids.
   To recreate right away, use new `pool_id` and `provider_id` values, or
   undelete the old ones.

@@ -8,12 +8,12 @@ Le projet gcloud actif reste `masterpoulet-dev`.
 - Configuration déjà paramétrée : `network_name`, `subnet_name`, `subnet_cidr`.
   Aucun changement de main.tf, providers.tf, outputs.tf, backend.tf ou dev.tfvars.
   Seule la validation interdisant PROD est retirée ; le format des IDs reste validé.
-- Ajout de `prd.tfvars` : projet `masterpoulet-prod`, région `europe-west3`, VPC
+- Ajout de `prod.tfvars` : projet `masterpoulet-prod`, région `europe-west3`, VPC
   `masterpoulet-prod-vpc`, subnet `masterpoulet-prod-vpc-subnet`, `10.0.2.0/24`.
 - Bucket PROD unique listé dans le projet : `masterpoulet_prod_bucket`,
   `EUROPE-WEST1`, versioning, accès uniforme et prévention d'accès public activés.
-  Liste récursive initiale vide. Configuration `backends/prd.hcl` : ce bucket,
-  préfixe `foundation/prd`. Aucun bucket créé ou modifié.
+  Liste récursive initiale vide. Configuration `backends/prod.hcl` : ce bucket,
+  préfixe `foundation/prod`. Aucun bucket créé ou modifié.
 - Bucket DEV confirmé : `masterpoulet_bucket`, préfixe `foundation/dev`.
   Seul le commentaire obsolète de `backends/dev.hcl` est corrigé.
 - Inventaires Compute réussis : DEV possède le VPC/subnet attendus ; PROD possède
@@ -24,9 +24,9 @@ Le projet gcloud actif reste `masterpoulet-dev`.
   puis plan `-var-file="dev.tfvars" -detailed-exitcode` : **aucun changement**,
   exit 0. State distant avant/après : génération `1792688481031642`,
   métagénération 1, MD5 `FRfJAw07TWedCjfpor60nA==`, inchangés.
-- Init PROD explicite avec `-reconfigure -backend-config="backends/prd.hcl"` : OK,
+- Init PROD explicite avec `-reconfigure -backend-config="backends/prod.hcl"` : OK,
   workspace `default`, aucune ressource dans `terraform state list`.
-  Plan `-var-file="prd.tfvars" -detailed-exitcode -out="prd.tfplan"` :
+  Plan `-var-file="prod.tfvars" -detailed-exitcode -out="prod.tfplan"` :
   **2 créations, 0 modification, 0 suppression**, exit 2 attendu.
   Inspection JSON du plan enregistré : seules `google_compute_network.vpc` et
   `google_compute_subnetwork.subnet` ont une action `create`, dans le bon projet.
@@ -173,9 +173,9 @@ testés. Aucun droit IAM n'a été accordé automatiquement.
 | `terraform fmt -check -recursive` | Réussite |
 | `terraform init -backend=false -input=false` | Réussite après autorisation réseau ; Google 7.46.1 signé HashiCorp |
 | `terraform validate -no-color` | Réussite |
-| `./check.ps1 -LocalOnly` | Réussite après autorisation réseau |
-| Parseur PowerShell sur `check.ps1` | Aucune erreur de syntaxe |
-| `./check.ps1` | Arrêt attendu : bucket absent de dev, avant init distant |
+| `python3 check.py --local-only` | Réussite après autorisation réseau |
+| Parseur PowerShell sur `check.py` | Aucune erreur de syntaxe |
+| `python3 check.py` | Arrêt attendu : bucket absent de dev, avant init distant |
 | Init avec GCS | Non exécuté : prérequis absent ; le garde-fou refuse un backend non trouvé dans dev |
 | `terraform plan '-var-file=dev.tfvars' -input=false -lock-timeout=60s -no-color` | Échec : Backend initialization required ; aucun plan produit |
 | `git diff --check` | Réussite pour les différences suivies ; les nouveaux fichiers restent non suivis |
@@ -197,7 +197,7 @@ par Git. La recherche FTS est dégradée à cause d'une bibliothèque Windows
 manquante ; les analyses d'impact ont néanmoins retourné leur résultat JSON.
 
 Les impacts upstream sur `infra/foundation`, `masterpoulet-dev-vpc` et
-`infra/foundation/check.ps1` ont retourné cible absente, risque **UNKNOWN**,
+`infra/foundation/check.py` ont retourné cible absente, risque **UNKNOWN**,
 appelants/processus affectés indéterminés. Ce n'est pas un résultat LOW.
 La recherche littérale complémentaire avant édition n'a trouvé aucune référence
 Terraform/foundation dans les fichiers existants examinés. Les ajouts sont
@@ -264,7 +264,7 @@ npx --offline gitnexus analyze --help
 npx --yes gitnexus@1.6.12 analyze --index-only
 node .gitnexus/run.cjs impact 'infra/foundation' --direction upstream --repo .
 node .gitnexus/run.cjs impact 'masterpoulet-dev-vpc' --direction upstream --repo .
-node .gitnexus/run.cjs impact 'infra/foundation/check.ps1' --direction upstream --repo .
+node .gitnexus/run.cjs impact 'infra/foundation/check.py' --direction upstream --repo .
 node .gitnexus/run.cjs detect-changes --scope all --repo .
 git ls-files --others --exclude-standard infra/foundation
 git check-ignore infra/foundation/.terraform/ infra/foundation/dev.tfplan infra/foundation/terraform.tfstate
@@ -275,12 +275,12 @@ terraform fmt -check -recursive
 terraform init -backend=false -input=false
 terraform validate -no-color
 terraform plan '-var-file=dev.tfvars' -input=false -lock-timeout=60s -no-color
-./check.ps1 -LocalOnly
-./check.ps1
+python3 check.py --local-only
+python3 check.py
 ```
 
 Le parseur `[System.Management.Automation.Language.Parser]::ParseFile` a aussi
-été utilisé pour `check.ps1`. Certains appels Terraform depuis la racine ont
+été utilisé pour `check.py`. Certains appels Terraform depuis la racine ont
 utilisé `'-chdir=infra/foundation'`, avec les mêmes résultats. `apply_patch` a
 créé les fichiers et corrigé les arguments PowerShell.
 
@@ -291,7 +291,7 @@ créé les fichiers et corrigé les arguments PowerShell.
    exactes dans README.md ; aucun changement IAM implicite.
 2. Vérifier les accès bucket de l'équipe, puis réinventorier les réseaux et les
    CIDR. Revoir le besoin d'import si un coéquipier a déjà créé les ressources.
-3. Lancer `./check.ps1` pour init GCS, validation et plan. Présenter ce plan réel.
+3. Lancer `python3 check.py` pour init GCS, validation et plan. Présenter ce plan réel.
 4. Obtenir ensuite un accord distinct pour `terraform apply dev.tfplan`.
 5. Vérifier les deux ressources et l'absence de dérive. La procédure de
    destruction/recréation après accord est dans README.md.

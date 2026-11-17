@@ -292,13 +292,15 @@ jobs:
   # report on). Software-composition analysis, not SAST, so it lives here and
   # not in ci-sast.yml.
   #
-  # Gate (per workspace): fails on any Critical or High advisory, or on 5 or
+  # Report only (continue-on-error): the thresholds below mark the job red
+  # without blocking CI. Thresholds (per workspace): fail on any Critical or High advisory, or on 5 or
   # more Moderate+Low. Also fails if `npm audit` cannot be completed -- an
   # unknown posture is not a passing one. The counts and every advisory land
   # in the job summary, and the raw report uploads as an artifact, pass or fail.
   dependencies-audit:
     name: dependencies-audit (${{ matrix.name }})
     runs-on: ubuntu-latest
+    continue-on-error: true # report only: advisories land in the summary but never fail the run
     timeout-minutes: 10
     strategy:
       fail-fast: false

@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      actions: write # cancel the run
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -70,18 +70,37 @@ jobs:
               --jq ".jobs[] | select(.name == \"$job\") | [.status, (.conclusion // \"-\"), (.runnerName // \"-\")] | @tsv")
             printf '[%3ss] %s: status/conclusion/runner = %s\n' "$SECONDS" "$job" "${row:-<job not created yet>}"
             status=${row%%$'\t'*}
-            if [ "$status" = in_progress ] || [ "$status" = completed ]; then
+            runner=${row##*$'\t'}
+            if [ -n "$row" ] && [ "$runner" != "-" ]; then
               echo "::notice::$ENV_NAME: GKE runner picked up the job"
               echo "- **$ENV_NAME**: runner picked up the job (\`$LABEL\`)" >> "$GITHUB_STEP_SUMMARY"
               exit 0
+            fi
+            if [ "$status" = completed ]; then
+              echo "::error::$ENV_NAME: job ended without ever running on a runner"
+              echo "- **$ENV_NAME**: job ended without a runner (\`$LABEL\`)" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
             fi
             [ "$SECONDS" -lt "$end" ] || break
             sleep 5
           done
           echo "::error::$ENV_NAME: no runner for '$LABEL' started the job within ${DEADLINE}s"
-          echo "- **$ENV_NAME**: NO runner for \`$LABEL\` within ${DEADLINE}s; run cancelled" >> "$GITHUB_STEP_SUMMARY"
-          gh run cancel "$GITHUB_RUN_ID" || true
+          echo "- **$ENV_NAME**: NO runner for \`$LABEL\` within ${DEADLINE}s" >> "$GITHUB_STEP_SUMMARY"
           exit 1
+
+  # Queued jobs never end on their own; cancel only once every watchdog has its verdict.
+  reaper:
+    needs: watchdog
+    if: always() && needs.watchdog.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write # cancel the run
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh run cancel "$GITHUB_RUN_ID"
 
   smoke-test:
     needs: scope

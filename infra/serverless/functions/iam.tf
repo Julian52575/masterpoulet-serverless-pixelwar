@@ -96,12 +96,22 @@ resource "google_cloud_run_service_iam_member" "gateway_invoker" {
   member   = local.sa[local.gateway_sa_id]
 }
 
+# The Pub/Sub agent isn't created until first requested, so binding it fails with "does not exist".
+resource "google_project_service_identity" "pubsub" {
+  provider = google-beta
+  service  = "pubsub.googleapis.com"
+
+  depends_on = [google_project_service.api]
+}
+
 # Dead-lettering needs the Pub/Sub agent to publish to the DLQ and ack on the source subscription.
 resource "google_pubsub_topic_iam_member" "dlq_publisher" {
   for_each = toset(local.topics)
   topic    = google_pubsub_topic.dlq[each.key].name
   role     = "roles/pubsub.publisher"
   member   = local.pubsub_agent
+
+  depends_on = [google_project_service_identity.pubsub]
 }
 
 resource "google_pubsub_subscription_iam_member" "dlq_subscriber" {
@@ -110,7 +120,7 @@ resource "google_pubsub_subscription_iam_member" "dlq_subscriber" {
   role         = "roles/pubsub.subscriber"
   member       = local.pubsub_agent
 
-  depends_on = [google_pubsub_subscription.push]
+  depends_on = [google_pubsub_subscription.push, google_project_service_identity.pubsub]
 }
 
 resource "google_pubsub_topic_iam_member" "gcs_publisher" {

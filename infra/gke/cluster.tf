@@ -83,5 +83,8 @@ resource "google_container_cluster" "gke" {
     }
   }
 
-  depends_on = [google_project_iam_member.nodes]
+  depends_on = [
+    google_project_iam_member.nodes,
+    google_project_service.container,
+  ]
 }

@@ -2,9 +2,14 @@ name: ARC smoke test
 
 on:
   workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment(s) whose GKE runners to check"
+        type: choice
+        options: [dev, prod, both]
+        default: both
   push:
-    branches: [feat/terraform-c04-gke]
-    paths: [.github/workflows/arc-smoke-test.yml]
+    branches: [15-feature-self-run-terraform-related-workflows-checks]
 
 permissions: {}
 
@@ -12,15 +17,94 @@ concurrency:
   group: arc-smoke-test-${{ github.ref }}
   cancel-in-progress: false
 
+run-name: "ARC smoke test ${{ inputs.env || 'both' }}"
+
 jobs:
-  smoke-test:
-    runs-on: masterpoulet-gke-runners
-    timeout-minutes: 3
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.scope.outputs.environments }}
     steps:
-      - name: Verify the GKE runner
+      - id: scope
+        env:
+          ENVIRONMENT: ${{ inputs.env || 'both' }}
+        run: |
+          case "$ENVIRONMENT" in
+            dev) envs='["dev"]' ;;
+            prod) envs='["prod"]' ;;
+            both) envs='["dev","prod"]' ;;
+            *) echo "::error::unknown env $ENVIRONMENT"; exit 1 ;;
+          esac
+          echo "environments=$envs" >> "$GITHUB_OUTPUT"
+          echo "Checking: $envs"
+
+  select-runner:
+    needs: scope
+    permissions:
+      actions: write
+    uses: ./.github/workflows/select-runner.yml # zizmor: ignore[self-repository] -- actionlint rejects `$/`
+    with:
+      environments: ${{ needs.scope.outputs.environments }}
+
+  smoke-test:
+    needs: [scope, select-runner]
+    runs-on: ${{ matrix.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJSON(needs.scope.outputs.environments) }}
+    name: smoke-test (${{ matrix.env }})
+    steps:
+      - name: Report runner state
         shell: bash
+        env:
+          ENV_NAME: ${{ matrix.env }}
+          SELECTED: ${{ matrix.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
+          EXPECTED: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
+        run: |
+          set -uo pipefail
+          echo "::group::Runner"
+          printf 'Environment:     %s\n' "$ENV_NAME"
+          printf 'Expected label:  %s\n' "$EXPECTED"
+          printf 'Selected label:  %s\n' "$SELECTED"
+          printf 'Runner name:     %s\n' "$RUNNER_NAME"
+          printf 'Runner OS/arch:  %s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
+          printf 'Hostname:        %s\n' "$(hostname)"
+          printf 'Kernel:          %s\n' "$(uname -srm)"
+          echo "::endgroup::"
+
+          echo "::group::Resources"
+          printf 'CPUs: %s\n' "$(nproc)"
+          free -h || true
+          df -h / || true
+          echo "::endgroup::"
+
+          echo "::group::Kubernetes pod"
+          printf 'KUBERNETES_SERVICE_HOST=%s\n' "${KUBERNETES_SERVICE_HOST:-<unset>}"
+          printf 'Pod hostname looks like ARC: %s\n' "$(hostname | grep -q runner && echo yes || echo no)"
+          echo "::endgroup::"
+
+          {
+            echo "### ARC smoke test: $ENV_NAME"
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Expected label | \`$EXPECTED\` |"
+            echo "| Selected label | \`$SELECTED\` |"
+            echo "| Runner | \`$RUNNER_NAME\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert the GKE runner was used
+        shell: bash
+        env:
+          ENV_NAME: ${{ matrix.env }}
+          SELECTED: ${{ matrix.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
+          EXPECTED: ${{ matrix.env == 'prod' && 'masterpoulet-gke-runners-prod' || 'masterpoulet-gke-runners' }}
         run: |
           set -euo pipefail
           test "$(uname -s)" = Linux
-          printf 'Runner hostname: %s\n' "$(hostname)"
-          printf 'ARC GKE smoke test succeeded on Linux\n'
+          if [ "$SELECTED" != "$EXPECTED" ]; then
+            echo "::error::$ENV_NAME: no GKE runner started in time, fell back to $SELECTED"
+            exit 1
+          fi
+          echo "$ENV_NAME: GKE runner OK ($RUNNER_NAME)"

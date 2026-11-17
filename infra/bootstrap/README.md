@@ -38,9 +38,14 @@ terraform plan -var-file=myenv.tfvars     # review the in-place changes
 terraform apply -var-file=myenv.tfvars
 ```
 
-A pool that `gcloud iam workload-identity-pools describe <pool> --location=global`
-reports as `DELETED` cannot be imported: undelete it with
-`gcloud iam workload-identity-pools undelete <pool> --location=global`, or pick a new `pool_id`.
+Still `409 already exists` after the import? The resource was probably deleted
+less than 30 days ago: Google keeps the id reserved, and it cannot be imported.
+Check with `gcloud iam workload-identity-pools describe <pool> --location=global`
+(`state: DELETED`) and `gcloud iam service-accounts list --show-deleted`. Either
+undelete it (`gcloud iam workload-identity-pools undelete <pool> --location=global`,
+`gcloud iam service-accounts undelete <numeric id>`), or set new `pool_id`,
+`provider_id` and `deployer_account_id` in your tfvars. The `github_variable_commands`
+output then gives the new `WIF_PROVIDER` and `DEPLOYER_SA`.
 
 ## What it grants
 

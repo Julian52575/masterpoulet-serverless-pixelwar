@@ -39,8 +39,10 @@ def main():
         if addr in known:
             return
         print(f">> import {addr}")
-        if tf("import", f"-var-file={var_file}", "-input=false", addr, ident).returncode:
-            print("   skipped (not found)")
+        r = tf("import", f"-var-file={var_file}", "-input=false", addr, ident)
+        if r.returncode:
+            reason = re.sub(r"\x1b\[[0-9;]*m|[│╷╵]", "", r.stderr)
+            print("   skipped:", " ".join(reason.split())[:300])
 
     adopt("google_storage_bucket.state", f"{project}/{bucket}")
     adopt("google_service_account.deployer", sa)

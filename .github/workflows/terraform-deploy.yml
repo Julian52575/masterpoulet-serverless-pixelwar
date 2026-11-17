@@ -52,9 +52,17 @@ jobs:
           echo "legs=$legs" >> "$GITHUB_OUTPUT"
           echo "$legs"
 
+  select-runner:
+    permissions:
+      actions: write
+    uses: ./.github/workflows/select-runner.yml
+    with:
+      # Tag pushes have no inputs and deploy both
+      environments: ${{ inputs.environment == 'both' || !inputs.environment && '["dev","prod"]' || format('["{0}"]', inputs.environment) }}
+
   deploy:
-    needs: legs
-    runs-on: ubuntu-latest
+    needs: [legs, select-runner]
+    runs-on: ${{ matrix.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
     timeout-minutes: 40
     strategy:
       # One leg at a time, in list order (see the legs job); a failed leg cancels the rest.

@@ -238,10 +238,17 @@ jobs:
 
   # Plans each root against each real backend.
   # OIDC needs id-token, so fork PRs (no secrets/vars) cannot pass this job.
+  select-terraform-runner:
+    permissions:
+      actions: write
+    uses: ./.github/workflows/select-runner.yml
+    with:
+      environments: '["dev","prod"]'
+
   terraform:
     name: terraform (${{ matrix.root }}, ${{ matrix.env }})
-    needs: terraform-roots
-    runs-on: ubuntu-latest
+    needs: [terraform-roots, select-terraform-runner]
+    runs-on: ${{ matrix.env == 'prod' && needs.select-terraform-runner.outputs.prod || needs.select-terraform-runner.outputs.dev }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -593,6 +600,7 @@ jobs:
       - workflow-lint
       - zizmor
       - terraform-roots
+      - select-terraform-runner
       - terraform
       - gitnexus
       - stack

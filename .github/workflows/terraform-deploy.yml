@@ -55,6 +55,7 @@ jobs:
   deploy:
     needs: legs
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     strategy:
       # One leg at a time, in list order (see the legs job); a failed leg cancels the rest.
       max-parallel: 1

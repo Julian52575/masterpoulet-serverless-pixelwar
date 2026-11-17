@@ -328,11 +328,11 @@ Si le contexte manque, suivre la [connexion GKE](../gke/README.md#se-connecter-d
 sur son propre PC, avec son propre compte. La commande de préparation locale est :
 
 ```powershell
-gcloud.cmd auth login
+gcloud auth login
 if ($LASTEXITCODE -ne 0) { throw 'Connexion Google impossible.' }
-gcloud.cmd auth application-default login
+gcloud auth application-default login
 if ($LASTEXITCODE -ne 0) { throw 'Connexion ADC du backend impossible.' }
-gcloud.cmd container clusters get-credentials masterpoulet-dev-gke --project=masterpoulet-dev --zone=europe-west1-b --dns-endpoint
+gcloud container clusters get-credentials masterpoulet-dev-gke --project=masterpoulet-dev --zone=europe-west1-b --dns-endpoint
 if ($LASTEXITCODE -ne 0) { throw 'Contexte GKE DEV indisponible.' }
 ```
 

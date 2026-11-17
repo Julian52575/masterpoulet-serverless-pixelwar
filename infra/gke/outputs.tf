@@ -20,5 +20,5 @@ output "node_service_account_email" {
 
 output "get_credentials_command" {
   description = "Run manually after deployment with an authorized Google identity."
-  value       = "gcloud.cmd container clusters get-credentials ${var.cluster_name} --zone=${var.zone} --project=${var.project_id} --dns-endpoint"
+  value       = "gcloud container clusters get-credentials ${var.cluster_name} --zone=${var.zone} --project=${var.project_id} --dns-endpoint"
 }

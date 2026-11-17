@@ -68,7 +68,7 @@ jobs:
           while :; do
             # `gh run view --json jobs` has no runner name; the REST API does.
             row=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs" --paginate \
-              --jq ".jobs[] | select(.name == \"$job\") | [.status, (.conclusion // \"-\"), (.runner_name // \"-\")] | @tsv")
+              --jq ".jobs[] | select(.name == \"$job\") | [.status, (.conclusion // \"-\"), (if (.runner_name // \"\") == \"\" then \"-\" else .runner_name end)] | @tsv")
             printf '[%3ss] %s: status/conclusion/runner = %s\n' "$SECONDS" "$job" "${row:-<job not created yet>}"
             status=${row%%$'\t'*}
             runner=${row##*$'\t'}

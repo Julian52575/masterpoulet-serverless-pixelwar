@@ -66,8 +66,9 @@ jobs:
           echo "Watching '$job' for label $LABEL (deadline ${DEADLINE}s)"
           end=$((SECONDS + DEADLINE))
           while :; do
-            row=$(gh run view "$GITHUB_RUN_ID" --json jobs \
-              --jq ".jobs[] | select(.name == \"$job\") | [.status, (.conclusion // \"-\"), (.runnerName // \"-\")] | @tsv")
+            # `gh run view --json jobs` has no runner name; the REST API does.
+            row=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs" --paginate \
+              --jq ".jobs[] | select(.name == \"$job\") | [.status, (.conclusion // \"-\"), (.runner_name // \"-\")] | @tsv")
             printf '[%3ss] %s: status/conclusion/runner = %s\n' "$SECONDS" "$job" "${row:-<job not created yet>}"
             status=${row%%$'\t'*}
             runner=${row##*$'\t'}

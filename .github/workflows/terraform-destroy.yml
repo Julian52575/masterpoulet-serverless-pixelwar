@@ -9,9 +9,7 @@ on:
         options: [dev, prod]
         required: true
         default: dev
-permissions:
-  contents: read
-  id-token: write
+permissions: {}
 jobs:
   select-runner:
     permissions:
@@ -22,6 +20,9 @@ jobs:
 
   destroy:
     needs: select-runner
+    permissions:
+      contents: read
+      id-token: write # workload identity federation
     runs-on: ${{ inputs.env == 'prod' && needs.select-runner.outputs.prod || needs.select-runner.outputs.dev }}
     environment: ${{ inputs.env }}
     strategy:

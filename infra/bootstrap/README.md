@@ -26,6 +26,22 @@ Then put `state_bucket` in the `bucket` line of the other stacks'
 State is a local `terraform.tfstate` here (gitignored). Keep it: it is the only
 record needed to destroy the stack.
 
+## Project that already has some of this
+
+`apply` fails with `409 ... already exists` when the bucket, deployer or WIF pool
+was created by hand. Adopt them first, then apply (it updates them in place):
+
+```bash
+terraform init
+./import-existing.sh myenv.tfvars
+terraform plan -var-file=myenv.tfvars     # review the in-place changes
+terraform apply -var-file=myenv.tfvars
+```
+
+A pool that `gcloud iam workload-identity-pools describe <pool> --location=global`
+reports as `DELETED` cannot be imported: undelete it with
+`gcloud iam workload-identity-pools undelete <pool> --location=global`, or pick a new `pool_id`.
+
 ## What it grants
 
 GitHub identities whose `repository` claim equals `github_repository` (any

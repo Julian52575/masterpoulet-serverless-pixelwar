@@ -16,6 +16,7 @@ type Config = { size: number; tile: number; maxBrush: number; palette: Record<st
 type Info = { x: number; y: number; pixel?: Pixel }
 type Mode = 'draw' | 'inspect'
 
+const BYPASS_DISCORD = import.meta.env.VITE_BYPASS_DISCORD === 'true'
 const MIN_SCALE = 1
 const MAX_SCALE = 64
 const DEFAULT_CONFIG: Config = {
@@ -278,7 +279,7 @@ export default function App({ db = defaultDb }: { db?: Firestore }) {
 
   const paint = async (x: number, y: number) => {
     setError('')
-    if (!token) {
+    if (!token && !BYPASS_DISCORD) {
       setError('Please log in with Discord to draw')
       return
     }
@@ -292,7 +293,7 @@ export default function App({ db = defaultDb }: { db?: Firestore }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(brush > 1 ? { x, y, color, size: brush } : { x, y, color }),
       })

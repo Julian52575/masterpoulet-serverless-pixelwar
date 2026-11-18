@@ -9,7 +9,7 @@ const { routeOf } = require("./draws");
 const { createDiscordAuth } = require("./auth");
 const { createQuota } = require("./quota");
 const { createPublisher } = require("./publisher");
-const { checkConfig } = require("./config");
+const { checkConfig, readBypassDiscord } = require("./config");
 const { log } = require("./logger");
 
 const problems = checkConfig();
@@ -18,8 +18,18 @@ if (problems.length > 0) {
   throw new Error("invalid configuration");
 }
 
+const discordAuth = createDiscordAuth().authenticate;
+const bypass = readBypassDiscord();
+if (bypass) log.warn("BYPASS_DISCORD enabled: unauthenticated draws accepted");
+
+// A fresh id per draw: a shared one makes every draw write the same rate-limit
+// doc and the Firestore transactions time out on its lock. Tokens are still validated.
+const anonymousId = () => String(Math.floor(Math.random() * 1e15) + 1e15);
+const authenticate = async (header) =>
+  bypass && !header ? { user_id: anonymousId(), username: "anonymous", cached: false } : discordAuth(header);
+
 const handle = createHandler({
-  authenticate: createDiscordAuth().authenticate,
+  authenticate,
   quota: createQuota({ db: new Firestore() }),
   publish: createPublisher()
 });

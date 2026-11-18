@@ -12,3 +12,11 @@ describe("checkConfig", () => {
     assert.deepEqual(checkConfig({ DRAW_TOPIC: "  " }), ["DRAW_TOPIC is not configured"]);
   });
 });
+
+test("readBypassDiscord is true only for 'true'", () => {
+  const { readBypassDiscord } = require("./config");
+  const assert = require("node:assert/strict");
+  assert.equal(readBypassDiscord({ BYPASS_DISCORD: "true" }), true);
+  assert.equal(readBypassDiscord({ BYPASS_DISCORD: "false" }), false);
+  assert.equal(readBypassDiscord({}), false);
+});

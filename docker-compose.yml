@@ -92,6 +92,7 @@ services:
     environment:
       PORT: 8080
       DRAW_TOPIC: draw-pixel
+      BYPASS_DISCORD: ${BYPASS_DISCORD}
       PUBSUB_EMULATOR_HOST: pubsub:8085
       FIRESTORE_EMULATOR_HOST: firestore:8080
       GOOGLE_CLOUD_PROJECT: local-project
@@ -149,6 +150,7 @@ services:
     environment:
       VITE_FIRESTORE_EMULATOR_HOST: localhost:${FIRESTORE_PORT:-8088}
       VITE_FIREBASE_PROJECT_ID: local-project
+      VITE_BYPASS_DISCORD: ${BYPASS_DISCORD}
     volumes:
       - ./app/frontend:/app
       - frontend-node-modules:/app/node_modules

@@ -8,10 +8,18 @@ const { annotate } = require("./tracing");
 const MAX_BODY_BYTES = 1024;
 const DISCORD_RETRY_SECONDS = 5;
 
+// Bearer-token API (no cookies), so any origin is acceptable.
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-headers": "authorization, content-type",
+  "access-control-max-age": "3600"
+};
+
 function answer(statusCode, body, correlationId, headers = {}) {
   return {
     statusCode,
-    headers: { "content-type": "application/json", "x-correlation-id": correlationId, ...headers },
+    headers: { ...CORS_HEADERS, "content-type": "application/json", "x-correlation-id": correlationId, ...headers },
     body: JSON.stringify(body)
   };
 }
@@ -31,6 +39,7 @@ function createHandler({ authenticate, quota, publish, now = () => new Date() })
     annotate({ correlation_id: correlationId });
     const route = routeOf(path);
     if (!route) return answer(404, { error: "not found" }, correlationId);
+    if (method === "OPTIONS") return { statusCode: 204, headers: { ...CORS_HEADERS, "x-correlation-id": correlationId }, body: "" };
     if (method !== "POST") return answer(405, { error: "method not allowed" }, correlationId, { allow: "POST" });
 
     let user;

@@ -57,7 +57,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
-      # One leg at a time, in list order (see the legs job); a failed leg cancels the rest.
+      # One leg at a time, in list order (see the legs job); a failed leg does not cancel the rest.
+      fail-fast: false
       max-parallel: 1
       matrix:
         include: ${{ fromJSON(needs.legs.outputs.legs) }}
@@ -94,19 +95,7 @@ jobs:
       - run: terraform init -input=false -backend-config="backends/${TF_ENV}.hcl"
       - name: Adopt existing resources
         if: matrix.root == 'serverless/functions'
-        run: |
-          # Cloud Functions/Firestore may already exist from earlier deploys; adopt them instead of failing with 409.
-          project=$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' "${TF_ENV}.tfvars")
-          region=$(sed -n 's/^region *= *"\(.*\)"/\1/p' "${TF_ENV}.tfvars")
-          number=$(gcloud projects describe "$project" --format='value(projectNumber)')
-          adopt() {
-            terraform state list | grep -qxF "$1" && return 0
-            terraform import -input=false -var-file="${TF_ENV}.tfvars" "$1" "$2" \
-              || echo "::notice::$1 not found, apply will create it"
-          }
-          adopt google_artifact_registry_repository.gcf_artifacts "projects/${project}/locations/${region}/repositories/gcf-artifacts"
-          adopt google_storage_bucket.gcf_sources "${project}/gcf-v2-sources-${number}-${region}"
-          adopt google_firestore_database.default "projects/${project}/databases/(default)"
+        run: ./adopt.sh
       - name: Plan
         env:
           REF: ${{ inputs.ref || github.ref_name }}

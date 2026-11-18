@@ -14,10 +14,12 @@ permissions:
   id-token: write
 jobs:
   destroy:
+    if: always()
     runs-on: ubuntu-latest
     environment: ${{ inputs.env }}
     strategy:
-      # Functions first: they depend on foundation.
+      # Functions first: they depend on foundation; a failed leg does not cancel the next.
+      fail-fast: false
       max-parallel: 1
       matrix:
         root: [serverless/functions, foundation]
@@ -43,4 +45,9 @@ jobs:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SA }}
       - run: terraform init -backend-config=backends/${{ inputs.env }}.hcl
+      - name: Adopt existing resources
+        if: matrix.root == 'serverless/functions'
+        env:
+          TF_ENV: ${{ inputs.env }}
+        run: ./adopt.sh
       - run: terraform destroy -auto-approve -var-file=${{ inputs.env }}.tfvars

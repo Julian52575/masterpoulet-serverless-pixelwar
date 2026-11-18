@@ -1,40 +1,35 @@
-# Frontend static hosting infrastructure
+# Frontend hosting (Firebase Hosting)
 
-Terraform configuration for deploying the statically built Pixelwar frontend (`app/frontend/dist`).
+The built SPA (`app/frontend/dist`) is served by Firebase Hosting on the project's default site
+(`https://<project_id>.web.app`), with HTTPS and CDN included. Terraform only enables
+`firebasehosting.googleapis.com`; the files are published by the `Terraform Deploy` workflow
+(`firebase deploy --only hosting`) right after the `frontend` leg applies.
 
-## Architecture
+Config: `app/frontend/firebase.json` (SPA rewrite, `index.html` no-cache, `/assets/**` immutable).
 
-```
-Internet ──► External HTTP Load Balancer (Cloud CDN) ──► Cloud Storage Bucket (static assets)
-```
+## One-time setup
 
-- **`google_storage_bucket.frontend`**: Stores the static files produced by `npm run build` in `app/frontend`. Uniform bucket-level access and website configuration (`main_page_suffix = "index.html"`, `not_found_page = "index.html"` for SPA).
-- **`google_storage_bucket_iam_member.public_read`**: Grants `roles/storage.objectViewer` to `allUsers`.
-- **`google_compute_backend_bucket.frontend`**: Backend bucket with Cloud CDN enabled for asset caching.
-- **`google_compute_url_map` & `google_compute_target_http_proxy` & `google_compute_global_forwarding_rule`**: Exposes a global HTTP load balancer endpoint.
+- Grant the deployer service account (`DEPLOYER_SA`) `roles/firebasehosting.admin`.
+- Nothing else to set: the workflow reads `api_base_url`, `firebase_web_api_key` and `firebase_web_app_id` from the `serverless/functions` state. `APP_URL` is optional (custom domain).
+- The first apply after the move from the old bucket + load balancer deletes those resources:
+  run it once with `allow_destroy`.
 
-## Files
-
-- `main.tf`: Storage bucket, IAM, Cloud CDN backend bucket and global forwarding rule.
-- `apis.tf`: Required APIs (`storage.googleapis.com`, `compute.googleapis.com`).
-- `providers.tf`: Provider constraints (`hashicorp/google`).
-- `backend.tf`: GCS remote state declaration.
-- `backends/dev.hcl` and `backends/prod.hcl`: State bucket and prefix configurations.
-- `dev.tfvars` and `prod.tfvars`: Environment-specific variable definitions.
-- `variables.tf` and `outputs.tf`: Variable and output declarations.
-
-## Deploying
+## Manual deploy
 
 ```bash
-cd infra/frontend
-terraform init -backend-config=backends/dev.hcl
-terraform plan -var-file=dev.tfvars
-terraform apply -var-file=dev.tfvars
+cd app/frontend
+F=../../infra/serverless/functions
+VITE_API_BASE=$(terraform -chdir=$F output -raw api_base_url) \
+VITE_FIREBASE_API_KEY=$(terraform -chdir=$F output -raw firebase_web_api_key) \
+VITE_FIREBASE_APP_ID=$(terraform -chdir=$F output -raw firebase_web_app_id) \
+VITE_FIREBASE_PROJECT_ID=<project> npm run build
+npx firebase-tools deploy --only hosting --project <project>
 ```
 
-Once applied, sync the built frontend files to the bucket:
+Never set `VITE_BYPASS_DISCORD` in a deployed build.
 
-```bash
-cd app/frontend && npm run build
-gcloud storage rsync -r dist/ "gs://$(terraform -chdir=../../infra/frontend output -raw bucket_name)"
-```
+## API routing
+
+All `/api/*` traffic goes through API Gateway: the build sets `VITE_API_BASE` to the gateway URL
+and the gateway allows CORS (`x-google-endpoints` + `OPTIONS` per path). Login is a plain
+navigation to the gateway, so the OAuth state cookie stays on the gateway host.

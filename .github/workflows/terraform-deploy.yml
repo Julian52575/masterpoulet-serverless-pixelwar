@@ -130,3 +130,18 @@ jobs:
       - name: Apply
         if: env.MODE == 'apply'
         run: terraform apply -input=false -auto-approve tfplan
+      - name: Build and deploy frontend
+        if: env.MODE == 'apply' && matrix.root == 'frontend'
+        working-directory: app/frontend
+        run: |
+          # Everything comes from the functions state; the web apiKey is not a secret.
+          terraform -chdir=../../infra/serverless/functions init -input=false -backend-config="backends/${TF_ENV}.hcl" > /dev/null
+          out() { terraform -chdir=../../infra/serverless/functions output -raw "$1"; }
+          VITE_API_BASE=$(out api_base_url)
+          VITE_FIREBASE_API_KEY=$(out firebase_web_api_key)
+          VITE_FIREBASE_APP_ID=$(out firebase_web_app_id)
+          VITE_FIREBASE_PROJECT_ID=$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' "../../infra/frontend/${TF_ENV}.tfvars")
+          export VITE_API_BASE VITE_FIREBASE_API_KEY VITE_FIREBASE_APP_ID VITE_FIREBASE_PROJECT_ID
+          npm ci
+          npm run build
+          npx --yes firebase-tools@14 deploy --only hosting --project "$VITE_FIREBASE_PROJECT_ID"

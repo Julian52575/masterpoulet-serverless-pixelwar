@@ -74,6 +74,11 @@ resource "google_secret_manager_secret_version" "secret" {
   secret_data_wo_version = var.secrets_version
 }
 
+data "google_firebase_web_app_config" "site" {
+  provider   = google-beta
+  web_app_id = google_firebase_web_app.site.app_id
+}
+
 resource "google_firebase_web_app" "site" {
   provider     = google-beta
   display_name = "pixelwar-${var.project_id}"

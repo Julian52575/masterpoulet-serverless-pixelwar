@@ -16,6 +16,8 @@ type Config = { size: number; tile: number; maxBrush: number; palette: Record<st
 type Info = { x: number; y: number; pixel?: Pixel }
 type Mode = 'draw' | 'inspect'
 
+// Empty = same origin (compose/dev); set to the API Gateway URL for the Hosting build.
+const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 const BYPASS_DISCORD = import.meta.env.VITE_BYPASS_DISCORD === 'true'
 const MIN_SCALE = 1
 const MAX_SCALE = 64
@@ -289,7 +291,7 @@ export default function App({ db = defaultDb }: { db?: Firestore }) {
     }
 
     try {
-      const res = await fetch(brush > 1 ? '/api/brush' : '/api/pixels', {
+      const res = await fetch(`${API_BASE}${brush > 1 ? '/api/brush' : '/api/pixels'}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -364,7 +366,7 @@ export default function App({ db = defaultDb }: { db?: Firestore }) {
           </>
         ) : (
           <a
-            href="/api/auth/login"
+            href={`${API_BASE}/api/auth/login`}
             role="button"
             style={{
               padding: '4px 8px',

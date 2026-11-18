@@ -132,16 +132,46 @@ Use the `gateway_host` output:
    DISCORD_GUILD_ID=<server id> node register-commands.js
    ```
 
-## 1.8 Check it works
+## 1.8 Deploy the frontend
+
+The website is a static build served by Firebase Hosting at `https://<project-id>.web.app`. It calls the backend through the API Gateway from [step 1.6](#16-deploy).
+
+1. Enable Hosting once (a Terraform root with only the API; it replaces the former bucket and load balancer):
+
+   ```bash
+   cd infra/frontend
+   terraform init -reconfigure -backend-config=backends/myenv.hcl
+   terraform apply -var-file=myenv.tfvars
+   terraform output hosting_url
+   ```
+
+2. `web-auth` redirects back to `https://<project-id>.web.app` by default (`app_url` in `myenv.tfvars` overrides it for a custom domain). Nothing to do unless you change it.
+3. Build and publish. All values are outputs of step 1.6 (the web `apiKey` is not a secret).
+
+   ```bash
+   cd app/frontend && npm ci
+   F=../../infra/serverless/functions
+   VITE_API_BASE=$(terraform -chdir=$F output -raw api_base_url) \
+   VITE_FIREBASE_API_KEY=$(terraform -chdir=$F output -raw firebase_web_api_key) \
+   VITE_FIREBASE_APP_ID=$(terraform -chdir=$F output -raw firebase_web_app_id) \
+   VITE_FIREBASE_PROJECT_ID=<project-id> \
+   npm run build
+   npx firebase-tools deploy --only hosting --project <project-id>
+   ```
+
+Never set `VITE_BYPASS_DISCORD` in a deployed build. From GitHub, the `Terraform Deploy` workflow does step 3 after the `frontend` leg (variables in [step 1.10](#110-deploy-from-github-optional) and [`infra/frontend/README.md`](infra/frontend/README.md)).
+
+## 1.9 Check it works
 
 In your server, try `/draw 10 10 red` and `/get`. The full checklist is in section 12 of [`INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md).
 
-## 1.9 Deploy from GitHub (optional)
+## 1.10 Deploy from GitHub (optional)
 
 The `Terraform Deploy` workflow (`.github/workflows/terraform-deploy.yml`) deploys the `dev` and `prod` environments. It needs, per GitHub environment:
 
 - Workload Identity Federation from GitHub to a deployer service account in your project. Create it once, by hand, with [`infra/bootstrap`](infra/bootstrap/README.md): it also creates the state bucket and prints the `WIF_PROVIDER` and `DEPLOYER_SA` variables to set.
 - The Discord values above, as GitHub variables and secrets.
+- For the frontend: the deployer service account needs `roles/firebasehosting.admin`; the build values are read from Terraform outputs (`APP_URL` is only for a custom domain).
 - `infra/*/dev.tfvars` and `backends/dev.hcl` (and the `prod` ones) pointing at your own projects and buckets.
 
 `scripts/gh_secrets.py` sets everything one by one and shows what is already set:
@@ -241,7 +271,7 @@ Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
 - `release-please.yml`: on `main`, maintains a Release PR with the next version and changelog (from Conventional Commits). Merging it tags and publishes a GitHub Release.
 - `release-to-ghcr.yml`: when a release is published, builds the `frontend` image and pushes them to GitHub Container Registry (`ghcr.io`).
-- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation` then `infra/serverless/functions` per environment (the GKE runner stacks `infra/gke` and `infra/runners` are deployed by hand, see `infra/README.md`) (see [1.9](#19-deploy-from-github-optional)).
+- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation`, `infra/serverless/functions` then `infra/frontend` (plus the Hosting deploy) per environment (the GKE runner stacks `infra/gke` and `infra/runners` are deployed by hand, see `infra/README.md`) (see [1.10](#110-deploy-from-github-optional)).
 
 # 3. Environment variables
 

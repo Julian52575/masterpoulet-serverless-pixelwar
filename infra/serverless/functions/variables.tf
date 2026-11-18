@@ -26,12 +26,13 @@ variable "discord_client_id" {
 }
 
 variable "app_url" {
-  description = "Website URL web-auth redirects back to."
+  description = "Website URL web-auth redirects back to. Empty: the Firebase Hosting default site (https://<project_id>.web.app)."
   type        = string
+  default     = ""
 
   validation {
-    condition     = can(regex("^(https://|http://(localhost|127\\.0\\.0\\.1)[:/])", var.app_url))
-    error_message = "Set the APP_URL GitHub variable to an https URL, or http://localhost (TF_VAR_app_url)."
+    condition     = var.app_url == "" || can(regex("^(https://|http://(localhost|127\\.0\\.0\\.1)[:/])", var.app_url))
+    error_message = "APP_URL must be empty, an https URL, or http://localhost (TF_VAR_app_url)."
   }
 }
 

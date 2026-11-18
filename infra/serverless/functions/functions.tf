@@ -42,7 +42,7 @@ locals {
     web-auth = {
       DISCORD_CLIENT_ID  = var.discord_client_id
       OAUTH_REDIRECT_URI = "https://${google_api_gateway_gateway.gateway.default_hostname}/api/auth/callback"
-      APP_URL            = var.app_url
+      APP_URL            = local.app_url
     }
     admin-cmd         = local.admins
     get-canvas        = { SNAPSHOT_BUCKET = google_storage_bucket.snapshots.name }

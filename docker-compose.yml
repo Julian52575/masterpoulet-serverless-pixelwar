@@ -1,8 +1,11 @@
-# Local frontend stack: a Traefik reverse proxy in front of the React frontend.
-# The API is the serverless functions in ./app/functions, deployed by infra/serverless/functions.
+# Local stack: Traefik reverse proxy in front of React frontend and serverless functions,
+# backed by local Firestore and Pub/Sub emulators.
 #
 #   http://localhost:8000/           -> frontend (Vite dev server, ./app/frontend)
+#   http://localhost:8000/api/auth/* -> web-auth (Functions Framework, ./app/functions/bot/web-auth)
+#   http://localhost:8000/api/*      -> web-proxy (Functions Framework, ./app/functions/bot/web-proxy)
 #   http://localhost:8080/           -> Traefik dashboard (insecure, local only)
+#   localhost:8088                   -> Firestore emulator
 
 services:
   proxy:
@@ -24,10 +27,128 @@ services:
     security_opt:
       - label=disable
 
+  firestore:
+    image: docker.io/google/cloud-sdk:emulators
+    restart: unless-stopped
+    command: ["gcloud", "beta", "emulators", "firestore", "start", "--host-port=0.0.0.0:8080"]
+    ports:
+      - "${FIRESTORE_PORT:-8088}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  pubsub:
+    image: docker.io/google/cloud-sdk:emulators
+    restart: unless-stopped
+    command: ["gcloud", "beta", "emulators", "pubsub", "start", "--host-port=0.0.0.0:8085"]
+    ports:
+      - "${PUBSUB_PORT:-8085}:8085"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8085/ >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  pubsub-init:
+    image: docker.io/library/python:3.12-alpine
+    depends_on:
+      pubsub:
+        condition: service_healthy
+      draw-pixel:
+        condition: service_started
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["python3", "/scripts/init_pubsub.py", "--host", "pubsub:8085", "--push-endpoint", "http://draw-pixel:8080/"]
+    restart: "no"
+
+  draw-pixel:
+    build:
+      context: ./app/functions/bot/draw-pixel
+      dockerfile: Dev.Dockerfile
+    environment:
+      PORT: 8080
+      FIRESTORE_EMULATOR_HOST: firestore:8080
+      GOOGLE_CLOUD_PROJECT: local-project
+      TRACING_ENABLED: "false"
+    volumes:
+      - ./app/functions/bot/draw-pixel:/app
+      - draw-pixel-node-modules:/app/node_modules
+    depends_on:
+      firestore:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.status===405?0:1),()=>process.exit(1))\""]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  web-proxy:
+    build:
+      context: ./app/functions/bot/web-proxy
+      dockerfile: Dev.Dockerfile
+    environment:
+      PORT: 8080
+      DRAW_TOPIC: draw-pixel
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      FIRESTORE_EMULATOR_HOST: firestore:8080
+      GOOGLE_CLOUD_PROJECT: local-project
+      TRACING_ENABLED: "false"
+    volumes:
+      - ./app/functions/bot/web-proxy:/app
+      - web-proxy-node-modules:/app/node_modules
+    depends_on:
+      firestore:
+        condition: service_healthy
+      pubsub:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web-proxy.rule=PathPrefix(`/api/pixels`) || PathPrefix(`/api/brush`)
+      - traefik.http.routers.web-proxy.priority=10
+      - traefik.http.services.web-proxy.loadbalancer.server.port=8080
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.status===404?0:1),()=>process.exit(1))\""]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  web-auth:
+    build:
+      context: ./app/functions/bot/web-auth
+      dockerfile: Dev.Dockerfile
+    environment:
+      PORT: 8080
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-1568285849328812186}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-local_secret}
+      APP_URL: ${APP_URL:-http://localhost:8000/}
+      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-http://localhost:8000/api/auth/callback}
+      TRACING_ENABLED: "false"
+    volumes:
+      - ./app/functions/bot/web-auth:/app
+      - web-auth-node-modules:/app/node_modules
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web-auth.rule=PathPrefix(`/api/auth`)
+      - traefik.http.routers.web-auth.priority=10
+      - traefik.http.services.web-auth.loadbalancer.server.port=8080
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.status===404?0:1),()=>process.exit(1))\""]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./app/frontend
       dockerfile: Dev.Dockerfile
+    environment:
+      VITE_FIRESTORE_EMULATOR_HOST: localhost:${FIRESTORE_PORT:-8088}
+      VITE_FIREBASE_PROJECT_ID: local-project
     volumes:
       - ./app/frontend:/app
       - frontend-node-modules:/app/node_modules
@@ -36,9 +157,8 @@ services:
       - traefik.http.routers.frontend.rule=PathPrefix(`/`)
       - traefik.http.routers.frontend.priority=1
       - traefik.http.services.frontend.loadbalancer.server.port=3000
-    # Vite takes a few seconds to listen; without this Traefik answers 502.
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -46,3 +166,6 @@ services:
 
 volumes:
   frontend-node-modules:
+  draw-pixel-node-modules:
+  web-proxy-node-modules:
+  web-auth-node-modules:

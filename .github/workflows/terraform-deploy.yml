@@ -38,8 +38,8 @@ jobs:
           # Tag pushes have no inputs and deploy both
           ENVIRONMENT: ${{ inputs.environment || 'both' }}
         run: |
-          # Foundation first: functions depend on it.
-          roots=(foundation serverless/functions)
+          # Foundation first: functions and frontend depend on it.
+          roots=(foundation serverless/functions frontend)
           case "$ENVIRONMENT" in
             both) envs=(dev prod) ;;
             *)    envs=("$ENVIRONMENT") ;;

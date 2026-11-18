@@ -205,15 +205,23 @@ Run `just` to see all available command and their summary.
 ## Services (Docker Compose)
 
 ```
-browser ──► proxy (Traefik :8000) ──► frontend (Vite, :3000)
+browser ──► proxy (Traefik :8000) ──┬──► frontend (Vite, :3000)
+                                    ├──► web-auth (/api/auth)
+                                    └──► web-proxy (/api/pixels, /api/brush) ──► Pub/Sub ──► draw-pixel ──► Firestore
 ```
 
-The API is no longer part of the compose stack: it is the serverless functions in [`app/functions/`](app/functions/INFRASTRUCTURE.md), deployed by `infra/serverless/functions`.
+The local Compose stack runs the complete frontend and serverless backend architecture locally:
 
 | Service | Role | Link to others |
 |---|---|---|
-| `proxy` | Traefik reverse proxy; dashboard on `:8080` (dev only, no auth) | Reads `traefik.*` labels from the other containers via the Podman/Docker socket and routes to them |
-| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority) |
+| `proxy` | Traefik reverse proxy; dashboard on `:8080` (dev only, no auth) | Routes `/` to frontend, `/api/auth` to web-auth, `/api` to web-proxy |
+| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority), connects to Firestore emulator on `:8088` |
+| `web-proxy` | Serverless proxy for web draws (Functions Framework) | Authenticates tokens, checks rate limits in Firestore, publishes to Pub/Sub |
+| `web-auth` | Serverless OAuth handler (Functions Framework) | Redirects to Discord OAuth and delivers token via URL fragment |
+| `draw-pixel` | Serverless draw worker (Functions Framework) | Receives Pub/Sub push messages and commits pixel transactions to Firestore |
+| `firestore` | Local Firestore emulator (Google Cloud SDK) | Provides live Firestore listeners and document storage on `:8088` |
+| `pubsub` | Local Pub/Sub emulator (Google Cloud SDK) | Delivers messages from `draw-pixel` topic to the `draw-pixel` worker |
+| `pubsub-init` | Init helper | Creates `draw-pixel` topic and push subscription on startup |
 
 ## Configuration (`.env`)
 
@@ -222,6 +230,8 @@ Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .
 | Variable | Used by | Purpose |
 |---|---|---|
 | `PROXY_PORT`, `PROXY_DASHBOARD_PORT` | `proxy` | Host ports for the app (default `8000`) and the Traefik dashboard (`8080`) |
+| `FIRESTORE_PORT` | `firestore` | Host port for the Firestore emulator (default `8088`) |
+| `PUBSUB_PORT` | `pubsub` | Host port for the Pub/Sub emulator (default `8085`) |
 | `PODMAN_STORAGE_DIR` (optional) | Nix dev shell | Where rootless Podman stores images and containers |
 | `PODMAN_NO_SOCKET` (optional) | Nix dev shell | Set to `1` to skip starting the Podman API socket (CI, headless) |
 

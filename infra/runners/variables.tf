@@ -72,7 +72,19 @@ variable "controller_resources" {
     limits   = object({ cpu = string, memory = string })
   })
   default = {
-    requests = { cpu = "50m", memory = "128Mi" }
+    requests = { cpu = "50m", memory = "64Mi" }
+    limits   = { cpu = "500m", memory = "256Mi" }
+  }
+}
+
+variable "listener_resources" {
+  description = "Listener requests retain more than 3x the measured memory peak; limits preserve burst capacity."
+  type = object({
+    requests = object({ cpu = string, memory = string })
+    limits   = object({ cpu = string, memory = string })
+  })
+  default = {
+    requests = { cpu = "50m", memory = "64Mi" }
     limits   = { cpu = "500m", memory = "256Mi" }
   }
 }

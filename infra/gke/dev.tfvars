@@ -13,7 +13,7 @@ disk_size_gb            = 30
 disk_type               = "pd-standard"
 node_autoscaling        = { min = 0, max = 2 }
 system_node_pool_name   = "system"
-system_machine_type     = "e2-medium"
+system_machine_type     = "e2-small"
 system_node_count       = 1
 system_disk_size_gb     = 30
 deletion_protection     = false

@@ -108,9 +108,9 @@ variable "system_node_pool_name" {
 }
 
 variable "system_machine_type" {
-  description = "e2-small cannot fit the audited system requests; e2-medium requires capacity checks before migration."
+  description = "System capacity uses e2-small after removing unused CSI addons and sizing ARC from measured usage; validate on the real node before migration."
   type        = string
-  default     = "e2-medium"
+  default     = "e2-small"
 }
 
 variable "system_node_count" {

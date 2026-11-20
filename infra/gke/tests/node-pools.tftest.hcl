@@ -22,6 +22,7 @@ run "capacity_and_isolation" {
   assert {
     condition = (
       google_container_node_pool.system.node_count == 1 &&
+      google_container_node_pool.system.node_config[0].machine_type == "e2-small" &&
       length(google_container_node_pool.system.autoscaling) == 0 &&
       google_container_node_pool.system.node_config[0].labels.workload == "system"
     )
@@ -42,5 +43,17 @@ run "capacity_and_isolation" {
   assert {
     condition     = google_container_cluster.gke.name == var.cluster_name && google_project_service.container.disable_on_destroy == false
     error_message = "Preserve cluster identity and never disable its API on removal."
+  }
+
+  assert {
+    condition = (
+      !google_container_cluster.gke.addons_config[0].gcp_filestore_csi_driver_config[0].enabled &&
+      !google_container_cluster.gke.addons_config[0].gce_persistent_disk_csi_driver_config[0].enabled &&
+      !google_container_cluster.gke.addons_config[0].dns_cache_config[0].enabled &&
+      contains(google_container_cluster.gke.logging_config[0].enable_components, "SYSTEM_COMPONENTS") &&
+      contains(google_container_cluster.gke.monitoring_config[0].enable_components, "SYSTEM_COMPONENTS") &&
+      google_container_cluster.gke.datapath_provider == "ADVANCED_DATAPATH"
+    )
+    error_message = "Omit optional storage and DNS cache only; preserve core networking and system observability."
   }
 }

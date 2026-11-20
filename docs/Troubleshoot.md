@@ -59,6 +59,22 @@ select the fresh file.
 do not apply a false recreation plan. Fresh DEV/PROD plans updated both existing
 releases in place, without replacement.
 
+## Concurrent Helm plans fail to rename a cached chart on Windows
+
+**Error:** a Terraform Helm plan reports Error locating chart and Access is
+denied while renaming gha-runner-scale-set-controller-0.15.0.tgz in the shared
+temporary Helm repository cache.
+
+**Occurrence:** 2026-11-20, concurrent DEV/PROD e2-small planning.
+
+**Cause:** both Helm providers downloaded the same chart into the same Windows
+cache concurrently. The affected plan was incomplete and was not used.
+
+**Solution:** rerun with a distinct HELM_REPOSITORY_CACHE per environment, or
+serialize the plans. The isolated DEV plan then completed with one DNS data
+adoption, two Helm updates and no destruction. Do not change chart versions,
+credentials or infrastructure to fix this local cache collision.
+
 ## Prisma.sql missing after a fresh npm install
 
 **Error:** backend worker tests fail with `Prisma.sql is not a function`.

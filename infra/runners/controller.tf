@@ -39,4 +39,6 @@ resource "helm_release" "arc_controller" {
       logFormat = "json"
     }
   })]
+
+  depends_on = [kubernetes_config_map_v1_data.dns_autoscaler]
 }

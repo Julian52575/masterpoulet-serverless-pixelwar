@@ -4,7 +4,7 @@
 
 ## Configuration du 20 novembre 2026
 
-Charts officiels 0.15.0, provider Helm 3.3.0 verrouillé. Controller arc dans
+Charts officiels 0.15.0, providers Helm 3.3.0 et Kubernetes 3.5.0 verrouillés. Controller arc dans
 arc-systems, service account arc-controller ; scale set dans arc-runners.
 Le Secret **arc-rw**, clé github_token, et les namespaces existants sont
 conservés. Terraform référence uniquement le nom du Secret, sans lire sa valeur.
@@ -22,14 +22,15 @@ donc pas nécessairement de runner ARC.
 
 | Composant | Placement | CPU request / limit | RAM request / limit |
 | --- | --- | --- | --- |
-| Controller | workload=system | 50m / 500m | 128Mi / 256Mi |
-| Listener | workload=system | 50m / 500m | 128Mi / 256Mi |
+| Controller | workload=system | 50m / 500m | 64Mi / 256Mi |
+| Listener | workload=system | 50m / 500m | 64Mi / 256Mi |
 | Runner | workload=worker ET pool github-runners | 500m / 1 | 512Mi / 1Gi |
 
-Seul le runner tolère workload=worker:NoSchedule. Les requests CPU ARC passent
-de 100m à 50m chacune pour permettre le rolling update sur e2-medium, avec
-1–3m mesurés ponctuellement ; vérifier de nouveau sous charge.
-Limites et requests mémoire restent identiques. Le runner conserve son image
+Seul le runner tolère workload=worker:NoSchedule. Les requests ARC deviennent
+50m/64Mi par processus sur e2-small ; les maxima historiques mesurés sont
+30,43Mi/8,26m pour le controller et 16,19Mi/3,15m pour le listener.
+Les limites restent 500m/256Mi et doivent être vérifiées sous deux vrais jobs.
+Le runner conserve son image
 ghcr.io/actions/actions-runner:2.338.2 et son stockage éphémère 1Gi/2Gi.
 Aucun sidecar Docker, mode dind, volume ou privilège n'est ajouté.
 Les jobs exigeant Docker ou plus de RAM nécessitent une adaptation séparée.
@@ -40,8 +41,15 @@ inutile. L'autoscaler réagit aux requests et contraintes de scheduling.
 Deux runners de 500m peuvent tenir sur **un seul** e2-standard-2 : deux jobs
 ne garantissent pas deux nœuds. Le deuxième nœud démarre si la capacité l'exige.
 
-Les plans DEV/PROD donnent chacun 0 création, 2 mises à jour en place,
-0 suppression. DEV rétablit aussi atomic=true du controller déjà dans le code.
+Les plans DEV/PROD donnent chacun 1 adoption de données DNS, 2 mises à jour
+Helm en place, 0 suppression. DEV rétablit aussi atomic=true du controller.
+La nouvelle ressource kubernetes_config_map_v1_data ne crée pas de ConfigMap :
+elle prend en charge uniquement sa clé linear et conserve les autres données.
+Le ConfigMap doit préexister. Son champ min/max=1 évite une deuxième réplique
+DNS sur l'unique système lors du réveil des workers. Le DNS reste actif.
+force=true transfère seulement cette clé depuis le gestionnaire GKE ;
+prevent_destroy interdit son retrait accidentel. Le controller dépend de
+ce réglage. Voir le [budget et la migration](../gke/README.md).
 Les tests Terraform mockés couvrent les deux tfvars. Le lint/rendu des charts
 vérifie les valeurs des plans ; cela ne prouve pas un scale-to-zero réel.
 Un kubeconfig alternatif doit être passé via -var=kubeconfig_path=<chemin> :
@@ -59,6 +67,8 @@ kubectl "--context=$kubeContext" get nodes -L workload,cloud.google.com/gke-node
 kubectl "--context=$kubeContext" get pods -A -o wide
 kubectl "--context=$kubeContext" -n arc-runners get autoscalingrunnersets,ephemeralrunnersets,ephemeralrunners
 kubectl "--context=$kubeContext" get pdb -A
+kubectl "--context=$kubeContext" -n kube-system get deployment kube-dns
+kubectl "--context=$kubeContext" -n kube-system get configmap kube-dns-autoscaler -o yaml
 kubectl "--context=$kubeContext" top nodes
 kubectl "--context=$kubeContext" top pods -A
 gcloud.cmd container node-pools describe github-runners "--cluster=$gkeCluster" "--zone=$gkeZone" "--project=$gcpProject" '--format=yaml(autoscaling,config.labels,config.taints,instanceGroupUrls)'
@@ -90,6 +100,13 @@ Pour PROD, remplacer runner par masterpoulet-prod-gke après validation DEV/rés
 | Pool inutilisé | retour à zéro, ARC reste disponible |
 | Nouveau job après zéro | répéter le test simple avec succès |
 | Plusieurs heures sans jobs | aucun worker/boot disk worker dans Compute Engine ; coût système persistant |
+
+Ajouter à la recette : DNS reste à une réplique Ready avec 0, 1 et 2 workers ;
+les drivers CSI et NodeLocal DNS n'ont plus de pod ; Allocatable couvre les
+requests effectives et le surge DNS de 115Mi/110m ; rollout du controller,
+redémarrage listener et retour à zéro réussissent sans OOM, éviction ou pression.
+Ne pas lancer simultanément plusieurs rollouts sur le nœud système minimal.
+Les redémarrages/tests modifiant les pods attendent l'approbation du déploiement.
 
 Pour vérifier le deuxième nœud indépendamment des runners, utiliser après
 autorisation ce Job temporaire. Deux pods de 1100m dépassent les 1930m

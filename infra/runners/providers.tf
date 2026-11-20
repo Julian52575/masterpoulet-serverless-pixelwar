@@ -6,7 +6,16 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 3.0"
     }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 3.0"
+    }
   }
+}
+
+provider "kubernetes" {
+  config_path    = pathexpand(var.kubeconfig_path)
+  config_context = local.kube_context
 }
 
 locals {

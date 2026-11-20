@@ -44,6 +44,20 @@ resource "google_container_cluster" "gke" {
     http_load_balancing {
       disabled = true
     }
+
+    # These runner-only clusters have no PVs/PVCs; boot disks do not use CSI.
+    gcp_filestore_csi_driver_config {
+      enabled = false
+    }
+    gce_persistent_disk_csi_driver_config {
+      enabled = false
+    }
+
+    # Keep kube-dns; the optional per-node cache costs 50 MiB on each node.
+    # Changing this setting rolls existing nodes, without replacing the cluster.
+    dns_cache_config {
+      enabled = false
+    }
   }
 
   logging_config {

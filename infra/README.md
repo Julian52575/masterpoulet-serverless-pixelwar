@@ -101,7 +101,7 @@ n'a pas de `.tf` racine : un plan lancé là ne gère pas les deux stacks.
 | foundation | VPC, subnet et secondaires, Cloud Router, Cloud NAT | Projet, API et bucket existants. |
 | gke | Cluster, pool, compte de service et attribution IAM des nœuds | Lit le VPC/subnet existants avec des data sources. |
 | bootstrap | APIs IAM, bucket de state, compte de déploiement et Workload Identity Federation GitHub | Application **manuelle** avec un compte propriétaire du projet ; hors CI. Voir [bootstrap/README.md](bootstrap/README.md). |
-| runners | Contrôleur et scale set ARC des runners GitHub | Cluster GKE existant. |
+| runners | Contrôleur/scale set ARC et clé du ConfigMap d'autoscaling DNS | Cluster GKE existant. |
 | serverless/functions | Cloud Functions du bot Discord et du web | Projet et APIs ; indépendant de foundation, GKE et runners. |
 
 `gke` et `runners` ne sont pas déployés par `terraform-deploy.yml` (voir `.github/workflows`). La CI les planifie avec les autres racines : le compte de déploiement doit pouvoir lire leur state et leurs ressources IAM.
@@ -124,7 +124,7 @@ Les verrous sont distincts : ne pas modifier les deux stacks simultanément.
 | Pool déployé | github-runners, 1 e2-standard-2, autoscaling 1–2 | Identique |
 | ARC déployé | arc + masterpoulet-dev-gke, charts 0.15.0 | arc + masterpoulet-prod-gke, charts 0.15.0 |
 | Application Kubernetes | Aucun pod applicatif observé | Aucun pod applicatif observé |
-| Proposition | system : 1 e2-medium ; workers : total 0–2 | Identique, tests bloqués tant que sortie Internet non validée |
+| Proposition | system : 1 e2-small ; workers : total 0–2 | Identique, tests bloqués tant que sortie Internet non validée |
 
 Les inventaires Cloud Run/Functions PROD sont vides ; la disponibilité publique
 de Pixel War n'a pas pu être attestée sans URL de référence. Aucun composant
@@ -472,17 +472,17 @@ restent indépendants de la migration.
 730 h/mois, une IP NAT par projet, 30 GiB pd-standard par nœud, aucune VM Spot.
 Les tarifs régionaux proviennent du catalogue officiel Compute Engine consulté
 le 20 novembre 2026 : cœur E2 DEV 0,02399337 USD/h, RAM 0,00321609 USD/GiB/h ;
-PROD 0,02810370 et 0,00376602. Le modèle e2-medium retient une capacité soutenue
-d'un vCPU et 4 GiB, contre deux vCPU et 8 GiB pour e2-standard-2.
+PROD 0,02810370 et 0,00376602. Le modèle e2-small retient une capacité soutenue
+de 0,5 vCPU et 2 GiB, contre deux vCPU et 8 GiB pour e2-standard-2.
 Vérifier le SKU partagé exact dans le devis Billing avant engagement ; ce calcul
 est une estimation, pas une facture contractuelle.
 
 | Tarif retenu | DEV europe-west1 | PROD europe-west3 |
 | --- | --- | --- |
-| e2-medium / h | 0,03685773 | 0,04316778 |
+| e2-small / h | 0,018428865 | 0,021583890 |
 | e2-standard-2 / h | 0,07371546 | 0,08633556 |
 | pd-standard / GiB-mois | 0,040 | 0,048 |
-| Système VM / mois | 26,91 | 31,51 |
+| Système VM / mois | 13,45 | 15,76 |
 | Système disque / mois | 1,20 | 1,44 |
 | Gestion GKE / mois | 73,00 | 73,00 |
 | NAT permanent : VM + une IP / mois | 1,022 + 3,65 | 1,022 + 3,65 après restauration |
@@ -496,21 +496,30 @@ consomment H=60. La période de démarrage et les délais de scale-down s'ajoute
 
 | Usage | DEV avant → après | PROD avant → après | Cumul avant → après | Économie cumulée |
 | --- | --- | --- | --- | --- |
-| Inactif, H=0 | 132,68 → 105,78 | 142,14 → 110,62 | 274,82 → 216,40 | 58,42/mois |
-| 1 h/j, H=30 | 132,68 → 108,08 | 142,14 → 113,32 | 274,82 → 221,40 | 53,42/mois |
-| 4 h/j, H=120 | 132,68 → 114,99 | 142,14 → 121,39 | 274,82 → 236,38 | 38,44/mois |
-| Intensif, H=1460 | 188,72 → 217,85 | 207,62 → 241,60 | 396,34 → 459,45 | surcoût 63,11/mois |
+| Inactif, H=0 | 132,68 → 92,33 | 142,14 → 94,87 | 274,82 → 187,19 | 87,63/mois |
+| 1 h/j, H=30 | 132,68 → 94,63 | 142,14 → 97,56 | 274,82 → 192,19 | 82,63/mois |
+| 4 h/j, H=120 | 132,68 → 101,54 | 142,14 → 105,63 | 274,82 → 207,17 | 67,65/mois |
+| Intensif, H=1460 | 188,72 → 204,39 | 207,62 → 225,84 | 396,34 → 430,24 | surcoût 33,90/mois |
 
 Le PROD réellement observé **n'a pas de NAT** : son sous-total actuel au repos
 est environ 137,47 USD, soit 270,15 USD cumulés avec DEV. Restaurer sa sortie
 ajoute environ 4,67 USD/mois au repos (5,69 avec deux VM permanentes).
-Comparer cet état réel au futur fonctionnel donne environ **53,75 USD/mois**
+Comparer cet état réel au futur fonctionnel donne environ **82,96 USD/mois**
 d'économie cumulée au repos. Ne pas présenter le NAT absent comme une économie
 permettant des runners fonctionnels.
 
+Par rapport à la proposition précédente e2-medium, le système e2-small économise
+**13,45 USD/mois DEV + 15,76 PROD = 29,21 USD/mois supplémentaires**, quel que
+soit H. La réduction de requests n'est pas une remise GCP : l'économie vient
+du type de VM et du retour effectif des workers à zéro. La faisabilité exige
+la désactivation des deux drivers CSI et du cache DNS facultatifs, un seul
+backend DNS sur le seul nœud système, puis la validation de capacité décrite
+dans le [rapport GKE](gke/README.md#audit-individuel-et-budget-e2-small).
+Aucune e2-medium n'est choisie automatiquement en cas d'échec.
+
 Formules après, avant autres consommations :
-DEV = 105,77814 + 0,07675930 × H ;
-PROD avec NAT = 110,62448 + 0,08970816 × H.
+DEV = 92,32507 + 0,07675930 × H ;
+PROD avec NAT = 94,86824 + 0,08970816 × H.
 Elles incluent VM, boot disks proratisés, gestion GKE et NAT/IP.
 La séparation économise à faible utilisation, mais ajoute le système aux
 workers à forte utilisation ; ce n'est pas une garantie de dépense maximale.

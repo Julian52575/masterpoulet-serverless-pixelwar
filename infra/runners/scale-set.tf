@@ -30,11 +30,8 @@ resource "helm_release" "arc_runner_scale_set" {
       spec = {
         nodeSelector = var.system_node_selector
         containers = [{
-          name = "listener"
-          resources = {
-            requests = { cpu = "50m", memory = "128Mi" }
-            limits   = { cpu = "500m", memory = "256Mi" }
-          }
+          name      = "listener"
+          resources = var.listener_resources
           securityContext = {
             allowPrivilegeEscalation = false
             runAsNonRoot             = true

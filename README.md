@@ -271,7 +271,7 @@ Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
 - `release-please.yml`: on `main`, maintains a Release PR with the next version and changelog (from Conventional Commits). Merging it tags and publishes a GitHub Release.
 - `release-to-ghcr.yml`: when a release is published, builds the `frontend` image and pushes them to GitHub Container Registry (`ghcr.io`).
-- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation`, `infra/serverless/functions` then `infra/frontend` (plus the Hosting deploy) per environment (the GKE runner stacks `infra/gke` and `infra/runners` are deployed by hand, see `infra/README.md`) (see [1.10](#110-deploy-from-github-optional)).
+- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation`, `infra/serverless/functions` then `infra/frontend` (plus the Hosting deploy) per environment, each through the shared `terraform-root.yml` (lock check, plan summary, destroy guard, apply) (the GKE runner stacks `infra/gke` and `infra/runners` are deployed by hand, see `infra/README.md`) (see [1.10](#110-deploy-from-github-optional)).
 
 # 3. Environment variables
 

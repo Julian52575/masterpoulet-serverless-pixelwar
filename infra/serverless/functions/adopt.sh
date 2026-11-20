@@ -14,6 +14,10 @@ adopt() {
   grep -qxF -- "$1" <<<"$state" && return 0
   local out
   if ! out=$(terraform import -input=false -no-color -var-file="${TF_ENV}.tfvars" "$1" "$2" 2>&1); then
+    if grep -q 'Error acquiring the state lock' <<<"$out"; then
+      echo "::error::state is locked; aborting adoption"
+      exit 1
+    fi
     echo "::notice::$1 not adopted (missing or not importable)"
     grep -q 'Cannot import non-existent' <<<"$out" || echo "$out" | grep -m1 'Error:' || true
   fi

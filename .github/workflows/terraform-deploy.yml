@@ -93,6 +93,16 @@ jobs:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOYER_SA }}
       - run: terraform init -input=false -backend-config="backends/${TF_ENV}.hcl"
+      - name: Fail on state lock
+        run: |
+          # The GCS backend holds its lock as <prefix>/default.tflock; fail fast rather than let plan/import hit it.
+          bucket=$(sed -n 's/^bucket *= *"\(.*\)"/\1/p' "backends/${TF_ENV}.hcl")
+          prefix=$(sed -n 's/^prefix *= *"\(.*\)"/\1/p' "backends/${TF_ENV}.hcl")
+          if gcloud storage ls "gs://${bucket}/${prefix}/default.tflock" >/dev/null 2>&1; then
+            echo "::error::Terraform state is locked (gs://${bucket}/${prefix}/default.tflock); wait for the other run or force-unlock"
+            gcloud storage cat "gs://${bucket}/${prefix}/default.tflock" || true
+            exit 1
+          fi
       - name: Adopt existing resources
         if: matrix.root == 'serverless/functions'
         run: ./adopt.sh

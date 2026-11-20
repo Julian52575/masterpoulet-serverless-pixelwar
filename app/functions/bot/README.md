@@ -156,7 +156,7 @@ Bodies: `{ x, y, color }` for `/pixels`, `{ x, y, color, size }` for `/brush` (a
 | `429 { limit, retry_after }` | quota used up this minute (also a `Retry-After` header) |
 | `503` | Discord could not be reached to check the token |
 
-Every answer carries an `x-correlation-id` header, which is also the `correlation_id` of the published event. The website may send its own in an `X-Correlation-Id` request header (8 to 64 letters, digits, `-` or `_`; anything else is replaced). The event's `request_id`, which `draw-pixel` uses to drop duplicates, is always a new UUID created by the proxy, never the browser's id. The pause and quota checks are a fast answer for the user: `draw-pixel` checks them again in its transaction and stays the authority. The proxy does not answer CORS preflights: the website must be served from the same origin as the API.
+Every answer carries an `x-correlation-id` header, which is also the `correlation_id` of the published event. The website may send its own in an `X-Correlation-Id` request header (8 to 64 letters, digits, `-` or `_`; anything else is replaced). The event's `request_id`, which `draw-pixel` uses to drop duplicates, is always a new UUID created by the proxy, never the browser's id. The pause and quota checks are a fast answer for the user: `draw-pixel` checks them again in its transaction and stays the authority. The gateway answers CORS preflights and the proxy adds CORS headers (`access-control-allow-origin: *`), so the website can be served from another origin (Firebase Hosting).
 
 ### web-auth
 

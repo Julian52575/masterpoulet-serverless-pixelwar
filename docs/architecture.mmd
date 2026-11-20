@@ -1,0 +1,163 @@
+---
+config:
+  flowchart:
+    nodeSpacing: 80
+    rankSpacing: 120
+    padding: 20
+    curve: linear
+---
+flowchart LR
+%% Sources. Paths starting with app/ or infra/ are repo-relative; bare paths like web-proxy/handler.js
+%% are relative to app/functions/bot/. <fn> = any function folder there; tf/ = infra/serverless/functions/.
+    %% Frontend: app/frontend/src/App.tsx (fetch /api/*, Firestore listeners), firebase.ts, firebase.json (Hosting)
+    %% Hosting: infra/frontend/*.tf
+    subgraph Clients
+        WEB["Frontend web app<br/>(React/Vite, Firebase Hosting)"]
+        DISCORD["Discord<br/>(bot + users)"]
+    end
+
+    %% API Gateway: tf/gateway.tf (routes, OpenAPI, allowCors, x-google-backend)
+    GW["API Gateway<br/>(ESPv2, OpenAPI 2.0, CORS)"]
+
+    %% Function names, entry points, memory, timeouts, env, secrets: tf/functions.tf
+    subgraph Functions["Serverless functions (Cloud Functions gen2, HTTP)"]
+        DP["discord-proxy"]
+        WP["web-proxy"]
+        WA["web-auth"]
+    end
+
+    %% Scheduler job + payload {type: snapshot.scheduled}: tf/pubsub.tf (google_cloud_scheduler_job)
+    SCHED["Cloud Scheduler<br/>*/5 * * * *"]
+
+    %% Topics, DLQs, push subscriptions, filters, retry: tf/pubsub.tf
+    subgraph Broker["Message broker (Pub/Sub)"]
+        T_DRAW[["draw-pixel"]]
+        T_CMD[["commands"]]
+        T_SNAPREQ[["snapshot-requested"]]
+        T_SNAPCRE[["snapshot-created"]]
+        DLQ[["*-dlq topics + pull subs<br/>(after 5 failed deliveries)"]]
+    end
+
+    %% Push envelope parsing: <fn>/envelope.js; OIDC invoker roles: tf/iam.tf
+    subgraph Consumers["Consumers (Pub/Sub push, OIDC via pubsub-push SA)"]
+        C_DRAW["draw-pixel"]
+        C_ADMIN["admin-cmd"]
+        C_GET["get-canvas"]
+        C_SNAP["snapshot-worker"]
+        C_NOTIF["snapshot-notifier"]
+    end
+
+    %% pixels: draw-pixel/pixels.js (PIXELS_COLLECTION), draw-pixel/grid.js (tile id); read rules: app/functions/firestore/firestore.rules
+    %% state/canvas: draw-pixel/state.js, admin-cmd/state.js
+    %% limits: draw-pixel/limits.js; ratelimit + processed: draw-pixel/pixels.js (TTL: tf/data.tf google_firestore_field)
+    subgraph Firestore["Firestore (native, default database)"]
+        FS_PIX[("pixels/{x}_{y}<br/>x, y: number<br/>tile: '{tx}_{ty}' (256x256 tiles)<br/>color: hex rrggbb with leading hash<br/>author: Discord user id<br/>author_name: string or null<br/>updated_at: Timestamp (drawn)<br/>written_at: Timestamp (internal)")]
+        FS_STATE[("state/canvas (single doc)<br/>paused: bool<br/>updated_by, updated_at<br/>cleared_at: Timestamp<br/>cleared_by")]
+        FS_LIM[("limits/{userId}<br/>limit: number<br/>updated_by, updated_at")]
+        FS_RATE[("ratelimit/{userId}_{window}<br/>user, count: number<br/>window_start: Timestamp<br/>expires_at: TTL")]
+        FS_PROC[("processed/{request_id}[_{chunk}]<br/>command: 'draw' or 'web.draw'<br/>result: object<br/>processed_at: Timestamp<br/>expires_at: TTL 24h")]
+    end
+    %% Bucket + prefixes: tf/data.tf; snapshot-worker/storage.js (snapshots/, manifests/, tiles/, latest.json); get-canvas/bucket.js
+    BUCKET[("Snapshot bucket (GCS)<br/>tiles/ manifests/ snapshots/")]
+
+    %% web-auth/handler.js (routes, state cookie, redirect fragments), web-auth/oauth.js (code exchange, /users/@me)
+    %% ---------- Web: login ----------
+    WEB -->|"GET /api/auth/login<br/>GET /api/auth/callback?code&state"| GW
+    GW --> WA
+    WA <-->|"OAuth2 code exchange, scope identify"| DISCORD
+    WA -.->|"302 APP_URL#access_token=...&token_type=Bearer&expires_in<br/>(or #auth_error=...)"| WEB
+
+    %% web-proxy/handler.js (status codes, CORS headers), web-proxy/draws.js (routes, body), web-proxy/auth.js (/users/@me, 5 min cache),
+    %% web-proxy/quota.js (pause/quota reads), web-proxy/publisher.js (web.draw event + attributes)
+    %% ---------- Web: draw ----------
+    WEB -->|"POST /api/pixels {x,y,color}<br/>POST /api/brush {x,y,color,size}<br/>Authorization: Bearer; X-Correlation-Id"| GW
+    GW --> WP
+    WP -->|"GET /users/@me (token check, cached 5 min)"| DISCORD
+    WP -->|"web.draw event"| T_DRAW
+    WP -.->|"202 {accepted} / 400 / 401 / 423 / 429 {limit,retry_after} / 503"| WEB
+    FS_STATE -.->|"realtime listener (read only)"| WEB
+    FS_PIX -.->|"realtime listeners by tile + getDoc (read only)"| WEB
+
+    %% discord-proxy/handler.js (Ed25519 check, PONG type 1, deferred type 5, refusal type 4, admin-only snapshot),
+    %% discord-proxy/interaction.js (command parsing), discord-proxy/routing.js (event -> topic + attributes), discord-proxy/publisher.js
+    %% ---------- Discord: commands ----------
+    DISCORD -->|"POST /interactions<br/>Ed25519 signed (type 1 PING, type 2 command)"| GW
+    GW --> DP
+    DP -.->|"200 {type:1} PONG<br/>200 {type:5} deferred (admin: ephemeral)<br/>200 {type:4} refused / unknown"| DISCORD
+    DP -->|"draw event"| T_DRAW
+    DP -->|"get, admin.* events"| T_CMD
+    DP -->|"snapshot.requested event"| T_SNAPREQ
+    SCHED -->|"snapshot.scheduled"| T_SNAPREQ
+
+    %% Filters: tf/pubsub.tf (subscriptions); dispatch on event.type: <fn>/worker.js
+    %% ---------- Consume ----------
+    T_DRAW -->|"all"| C_DRAW
+    T_CMD -->|"filter type = get"| C_GET
+    T_CMD -->|"filter type hasPrefix admin."| C_ADMIN
+    T_SNAPREQ -->|"all"| C_SNAP
+    T_SNAPCRE -->|"all"| C_NOTIF
+    Broker -.-> DLQ
+
+    %% draw-pixel/handlers.js + pixels.js (draw, web.draw, 400-pixel transactions); admin-cmd/handlers.js + clear.js
+    %% get-canvas/view.js + compose.js; snapshot-worker/snapshot.js + compose.js + state.js
+    %% Bucket notification: tf/pubsub.tf (google_storage_notification); snapshot-notifier/cloudevent.js, notifier.js, links.js (signed URL)
+    %% IAM per function: tf/iam.tf
+    %% ---------- Data ----------
+    %% One edge per component to the Firestore group; the label lists the collections touched
+    WP -->|"read: state/canvas, limits, ratelimit"| Firestore
+    C_DRAW -->|"tx of <= 400 pixels<br/>r/w: pixels, state/canvas, limits, ratelimit, processed"| Firestore
+    C_ADMIN -->|"w: state/canvas, limits<br/>delete: pixels (clear)"| Firestore
+    C_GET -->|"read: pixels changed since snapshot, state/canvas"| Firestore
+    C_SNAP -->|"read: pixels, state/canvas"| Firestore
+    C_GET -->|"read latest manifest + tiles"| BUCKET
+    C_SNAP <-->|"read manifest/tiles; write tiles, manifests, snapshot PNG<br/>(object metadata carries interaction token)"| BUCKET
+    BUCKET -->|"OBJECT_FINALIZE on snapshots/ (JSON_API_V1)"| T_SNAPCRE
+    C_NOTIF -->|"read metadata, sign URL"| BUCKET
+
+    %% PATCH webhooks/{app}/{token}/messages/@original: <fn>/discord.js (editOriginal), <fn>/reply.js
+    %% Scheduled channel webhook: snapshot-notifier/discord.js (createChannelWebhook), notifier.js (postScheduled)
+    %% ---------- Replies to Discord ----------
+    C_DRAW -->|"PATCH webhooks/app/token/messages/@original<br/>(only for type draw, not web.draw)"| DISCORD
+    C_ADMIN -->|"PATCH @original {content}"| DISCORD
+    C_GET -->|"PATCH @original multipart: content + PNG"| DISCORD
+    C_NOTIF -->|"PATCH @original {content: signed URL}<br/>or POST channel webhook (scheduled)"| DISCORD
+
+
+    %% Edge colors: one color per source component (order = edge definition order)
+    linkStyle 0 stroke:#2563eb,stroke-width:2px
+    linkStyle 1 stroke:#0891b2,stroke-width:2px
+    linkStyle 2 stroke:#ca8a04,stroke-width:2px
+    linkStyle 3 stroke:#ca8a04,stroke-width:2px
+    linkStyle 4 stroke:#2563eb,stroke-width:2px
+    linkStyle 5 stroke:#0891b2,stroke-width:2px
+    linkStyle 6 stroke:#ea580c,stroke-width:2px
+    linkStyle 7 stroke:#ea580c,stroke-width:2px
+    linkStyle 8 stroke:#ea580c,stroke-width:2px
+    linkStyle 9 stroke:#1d4ed8,stroke-width:2px
+    linkStyle 10 stroke:#1d4ed8,stroke-width:2px
+    linkStyle 11 stroke:#7c3aed,stroke-width:2px
+    linkStyle 12 stroke:#0891b2,stroke-width:2px
+    linkStyle 13 stroke:#db2777,stroke-width:2px
+    linkStyle 14 stroke:#db2777,stroke-width:2px
+    linkStyle 15 stroke:#db2777,stroke-width:2px
+    linkStyle 16 stroke:#db2777,stroke-width:2px
+    linkStyle 17 stroke:#65a30d,stroke-width:2px
+    linkStyle 18 stroke:#16a34a,stroke-width:2px
+    linkStyle 19 stroke:#059669,stroke-width:2px
+    linkStyle 20 stroke:#059669,stroke-width:2px
+    linkStyle 21 stroke:#0d9488,stroke-width:2px
+    linkStyle 22 stroke:#0f766e,stroke-width:2px
+    linkStyle 23 stroke:#dc2626,stroke-width:2px
+    linkStyle 24 stroke:#ea580c,stroke-width:2px
+    linkStyle 25 stroke:#9333ea,stroke-width:2px
+    linkStyle 26 stroke:#c026d3,stroke-width:2px
+    linkStyle 27 stroke:#4f46e5,stroke-width:2px
+    linkStyle 28 stroke:#0284c7,stroke-width:2px
+    linkStyle 29 stroke:#4f46e5,stroke-width:2px
+    linkStyle 30 stroke:#0284c7,stroke-width:2px
+    linkStyle 31 stroke:#475569,stroke-width:2px
+    linkStyle 32 stroke:#b45309,stroke-width:2px
+    linkStyle 33 stroke:#9333ea,stroke-width:2px
+    linkStyle 34 stroke:#c026d3,stroke-width:2px
+    linkStyle 35 stroke:#4f46e5,stroke-width:2px
+    linkStyle 36 stroke:#b45309,stroke-width:2px

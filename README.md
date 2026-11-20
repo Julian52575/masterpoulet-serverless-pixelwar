@@ -1,6 +1,6 @@
 # serverless-pixelwar
 
-A shared pixel canvas drawn from Discord slash commands and a website. The backend is serverless on Google Cloud (Cloud Functions, Pub/Sub, Firestore, API Gateway), described in [`app/functions/INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md) and deployed with the Terraform in [`infra/`](infra/).
+A shared pixel canvas drawn from Discord slash commands and a website. The backend is serverless on Google Cloud (Cloud Functions, Pub/Sub, Firestore, API Gateway), described in [`app/functions/INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md) and deployed with the Terraform in [`infra/`](infra/). The full component and message-flow diagram is in [`docs/architecture.mmd`](docs/architecture.mmd) (Mermaid).
 
 1. [Quick start](#1-quick-start): create the Discord bot and the Google Cloud project, then deploy with the Terraform here.
 2. [Developer experience](#2-developer-experience): local stack, tooling, CI/CD.

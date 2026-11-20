@@ -193,7 +193,7 @@ With `jwt_audience`, the gateway puts **its own** Google ID token in `Authorizat
 
 No authentication is configured on the gateway itself: Discord requests are checked by their signature, website requests by their Discord token (web-proxy) or the OAuth flow (web-auth). A quota per client on `/api/pixels` and `/api/brush` is advised: each new token costs one call to Discord.
 
-The gateway does not handle CORS preflights here: serve the website from the same host as the API (for example a load balancer with the static site and the gateway behind it), or add the CORS settings at that level.
+CORS: the website (Firebase Hosting) is served from another origin than the gateway. The OpenAPI config sets `allowCors: true` and declares `OPTIONS` on every path, so the gateway answers preflights; `web-proxy` also adds `access-control-*` headers (any origin, since the API uses a bearer token and no cookies).
 
 ## 11. Discord portal (by hand)
 

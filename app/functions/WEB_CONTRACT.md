@@ -127,7 +127,7 @@ Attributes: `type`, `source`, `correlation_id`, and the W3C `traceparent` (one t
 - The OAuth `client_secret` is in Secret Manager. The `state` cookie is `__Host-`, HttpOnly, Secure, SameSite=Lax.
 - The token travels in a URL fragment, which is never sent to a server nor logged.
 - The browser can never write to Firestore; it can read one pixel, a tile at a time, and `state/canvas`, nothing else.
-- Same origin: the API does not answer CORS preflights, so the website must be served from the same host as `/api`.
+- Cross-origin: the website (Firebase Hosting) calls the gateway directly. The gateway answers CORS preflights and `web-proxy` sends `access-control-allow-origin: *` (bearer token, no cookies). The frontend reads the gateway host from `VITE_API_BASE`.
 
 ## 8. What the current frontend must change
 

@@ -27,6 +27,10 @@ on:
         description: "Run ./adopt.sh before planning to import resources that already exist"
         type: boolean
         default: false
+      redact_outputs_matching:
+        description: "Case-insensitive regex; outputs whose name matches have their value replaced by <redacted> in plan and apply logs (empty: redact nothing)"
+        type: string
+        default: "key|secret|token|password|passwd|credential|private|webhook|cert"
       deploy_frontend:
         description: "After apply, build and deploy the web app to Firebase Hosting"
         type: boolean
@@ -44,6 +48,7 @@ jobs:
     environment: ${{ inputs.env }} # add required reviewers on prd
     env:
       MODE: ${{ inputs.mode }}
+      REDACT_PATTERN: ${{ inputs.redact_outputs_matching }}
       TF_ENV: ${{ inputs.env }}
       # Terraform ignores TF_VAR_* a root does not declare.
       TF_VAR_discord_client_id: ${{ vars.DISCORD_CLIENT_ID }}
@@ -78,6 +83,32 @@ jobs:
             gcloud storage cat "gs://${bucket}/${prefix}/default.tflock" || true
             exit 1
           fi
+      - name: Prepare output redaction
+        working-directory: ${{ runner.temp }}
+        run: |
+          # Defense in depth for outputs that are not marked sensitive: Terraform prints them in clear text.
+          cat > redact.sh <<'SH'
+          #!/usr/bin/env bash
+          # Filter: in an "Outputs:" / "Changes to Outputs:" block, replaces the value of outputs named like $REDACT_PATTERN.
+          [ -z "${REDACT_PATTERN:-}" ] && exec cat
+          exec awk -v pat="$REDACT_PATTERN" '
+            /^(Changes to )?Outputs:/ { inout = 1; print; next }
+            !inout { print; next }
+            depth > 0 { depth += gsub(/[{[(]/, "&") - gsub(/[}\])]/, "&"); next }
+            {
+              p = match($0, /[^ +~-]/)
+              if (p == 0) { print; next }
+              rest = substr($0, p); name = rest; sub(/[ =].*/, "", name)
+              eq = index(rest, "= ")
+              if (eq > 0 && tolower(name) ~ tolower(pat)) {
+                val = substr(rest, eq + 2)
+                depth = gsub(/[{[(]/, "&", val) - gsub(/[}\])]/, "&", val)
+                if (depth < 0) depth = 0
+                print substr($0, 1, p - 1) name " = <redacted>"
+              } else print
+            }'
+          SH
+          chmod +x redact.sh
       - name: Adopt existing resources
         if: inputs.adopt
         run: ./adopt.sh
@@ -86,13 +117,14 @@ jobs:
           REF: ${{ inputs.ref || github.ref_name }}
           ROOT: ${{ inputs.root }}
         run: |
-          terraform plan -input=false -no-color -var-file="${TF_ENV}.tfvars" -out=tfplan
+          set -o pipefail
+          terraform plan -input=false -no-color -var-file="${TF_ENV}.tfvars" -out=tfplan | "$RUNNER_TEMP/redact.sh"
           # tee so the plan also shows in the step log, not only the job summary
           {
             echo "## Terraform ${MODE}: ${ROOT} (${TF_ENV})"
             echo "Ref \`${REF}\` at \`$(git rev-parse HEAD)\`"
             echo '```'
-            terraform show -no-color tfplan
+            terraform show -no-color tfplan | "$RUNNER_TEMP/redact.sh"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Destroy guard
@@ -119,7 +151,9 @@ jobs:
           echo "$destroyed"
       - name: Apply
         if: inputs.mode == 'apply'
-        run: terraform apply -input=false -auto-approve tfplan
+        run: |
+          set -o pipefail
+          terraform apply -input=false -no-color -auto-approve tfplan | "$RUNNER_TEMP/redact.sh"
       - name: Build and deploy frontend
         if: inputs.mode == 'apply' && inputs.deploy_frontend
         working-directory: app/frontend

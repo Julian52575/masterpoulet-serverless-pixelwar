@@ -2,6 +2,16 @@ name: ARC smoke test
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Existing ARC scale set to test after deployment approval"
+        type: choice
+        options: [masterpoulet-dev-gke, masterpoulet-prod-gke]
+        default: masterpoulet-dev-gke
+      parallel:
+        description: "Submit two concurrent jobs to the selected scale set"
+        type: boolean
+        default: false
   push:
     branches: [feat/terraform-c04-gke]
     paths: [.github/workflows/arc-smoke-test.yml]
@@ -14,8 +24,11 @@ concurrency:
 
 jobs:
   smoke-test:
-    runs-on: masterpoulet-gke-runners
-    timeout-minutes: 3
+    strategy:
+      matrix:
+        slot: ${{ fromJSON(inputs.parallel && '[1,2]' || '[1]') }}
+    runs-on: ${{ inputs.runner || 'masterpoulet-dev-gke' }}
+    timeout-minutes: 15
     steps:
       - name: Verify the GKE runner
         shell: bash
@@ -24,3 +37,4 @@ jobs:
           test "$(uname -s)" = Linux
           printf 'Runner hostname: %s\n' "$(hostname)"
           printf 'ARC GKE smoke test succeeded on Linux\n'
+          sleep 30

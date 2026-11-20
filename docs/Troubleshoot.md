@@ -8,6 +8,13 @@ Known incidents with their cause and fix. Rules for adding entries are in [CONTR
 
 **Occurrences:** 2026-10-23, 15:51 Paris time (13:51 UTC).
 
+On 2026-11-20, the node-pool audit found the same missing Router/NAT symptom
+in PROD; DEV was present and its foundation plan had no changes. The PROD
+foundation plan proposes two creations, with the existing VPC/subnet and
+secondary ranges preserved. The deletion cause for this occurrence was not
+established. No apply was performed; restore the reviewed foundation plan only
+after approval and verify GitHub/GHCR egress before testing private PROD runners.
+
 **Cause:** the Terraform Deploy workflow applied an older Terraform configuration. A push to the `terraform-deployment-test` branch (commit `e23d1d5`, run [39964607195](https://github.com/Julian52575/serverless-pixelwar/actions/runs/39964607195)) triggered a deploy. That branch didn't contain `router.tf` and `nat.tf` (added in `3c3948f`). Terraform found both resources in the shared state but not in the config, and `terraform apply -auto-approve` destroyed them. The same run also applied to prod.
 
 **Solution:**
@@ -18,6 +25,11 @@ Known incidents with their cause and fix. Rules for adding entries are in [CONTR
 **Prevention:** the deploy workflow now fails an apply whose plan deletes or replaces resources, unless the run's `allow_destroy` input is ticked. Before ticking it, check the "Resources to delete or replace" list in the job summary.
 
 ## ARC scale set label rejected by actionlint
+
+The 2026-11-20 audit found deployed scale sets named masterpoulet-dev-gke and
+masterpoulet-prod-gke, while the smoke test still requested the historical
+masterpoulet-gke-runners label. The manual smoke test now selects the existing
+DEV/PROD labels; Terraform preserves the deployed Helm release names.
 
 **Error:** actionlint reports `label "masterpoulet-gke-runners" is unknown`, even
 though the ARC smoke test succeeds on GKE.
@@ -30,6 +42,22 @@ though the ARC smoke test succeeds on GKE.
 **Solution:** list the exact scale set name in `self-hosted-runner.labels` in
 `.github/actionlint.yaml`. Keep `runs-on: masterpoulet-gke-runners` in the workflow.
 Do not suppress the label check or replace it with a GitHub-hosted runner.
+
+## Stale GKE kubeconfig reports releases missing
+
+**Error:** kubectl returns NotFound and a Helm Terraform plan proposes creating
+releases that are visible on the current cluster through a fresh kubeconfig.
+
+**Occurrence:** 2026-11-20, read-only GKE node-pool audit.
+
+**Cause:** the old local kubeconfig referenced an obsolete cluster endpoint.
+The Helm provider explicitly sets config_path, so KUBECONFIG alone did not
+select the fresh file.
+
+**Solution:** refresh credentials with the explicit project, zone, cluster and
+--dns-endpoint. Pass an alternate file through kubeconfig_path as well. Replan;
+do not apply a false recreation plan. Fresh DEV/PROD plans updated both existing
+releases in place, without replacement.
 
 ## Prisma.sql missing after a fresh npm install
 

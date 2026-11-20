@@ -1,5 +1,5 @@
 resource "helm_release" "arc_runner_scale_set" {
-  name             = "masterpoulet-gke-runners"
+  name             = var.runner_scale_set_name
   namespace        = "arc-runners"
   create_namespace = false
   repository       = "oci://ghcr.io/actions/actions-runner-controller-charts"
@@ -19,7 +19,7 @@ resource "helm_release" "arc_runner_scale_set" {
   values = [yamlencode({
     githubConfigUrl    = "https://github.com/Julian52575/masterpoulet-serverless-pixelwar"
     githubConfigSecret = "arc-rw"
-    runnerScaleSetName = "masterpoulet-gke-runners"
+    runnerScaleSetName = var.runner_scale_set_name
     minRunners         = 0
     maxRunners         = 2
     controllerServiceAccount = {
@@ -28,11 +28,11 @@ resource "helm_release" "arc_runner_scale_set" {
     }
     listenerTemplate = {
       spec = {
-        nodeSelector = { "cloud.google.com/gke-nodepool" = var.node_pool_name }
+        nodeSelector = var.system_node_selector
         containers = [{
           name = "listener"
           resources = {
-            requests = { cpu = "100m", memory = "128Mi" }
+            requests = { cpu = "50m", memory = "128Mi" }
             limits   = { cpu = "500m", memory = "256Mi" }
           }
           securityContext = {
@@ -47,7 +47,8 @@ resource "helm_release" "arc_runner_scale_set" {
     }
     template = {
       spec = {
-        nodeSelector                 = { "cloud.google.com/gke-nodepool" = var.node_pool_name }
+        nodeSelector                 = merge(var.worker_node_selector, { "cloud.google.com/gke-nodepool" = var.node_pool_name })
+        tolerations                  = var.worker_tolerations
         automountServiceAccountToken = false
         securityContext              = { seccompProfile = { type = "RuntimeDefault" } }
         containers = [{

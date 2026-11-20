@@ -4,6 +4,8 @@
 self-hosted-runner:
   labels:
     - masterpoulet-gke-runners
+    - masterpoulet-dev-gke
+    - masterpoulet-prod-gke
 
 paths:
   .github/workflows/adr-discussion-sync.yml:

@@ -1,405 +1,231 @@
-# GKE Standard — cluster des futurs runners GitHub Actions
+# GKE — pools système et workers DEV/PROD
 
-[Guide principal](../README.md) · [Réseau foundation](../foundation/README.md)
+[Guide et coûts](../README.md) · [Recette ARC](../runners/README.md)
 
-Cette stack indépendante réutilise le réseau foundation. Elle gère le cluster,
-un node pool, le compte de service des nœuds et son attribution IAM. Elle ne
-crée pas de VPC, subnet, Router, NAT, bucket, Helm release ou runner.
+## Architecture et audit du 20 novembre 2026
 
-## Comprendre Kubernetes et GKE
+Les clusters Standard zonaux existants sont conservés. Ce root gère deux
+pools, le cluster, le compte des nœuds, son IAM et l'API GKE déjà dans les
+states. Réseau, NAT, buckets, WIF et application restent dans leurs stacks.
 
-| Terme | Explication |
-| --- | --- |
-| Cluster | Ensemble du control plane et des nœuds qui exécutent les charges. |
-| Control plane | Pilotage Kubernetes géré par Google dans GKE. |
-| Node pool | Groupe de nœuds ayant une configuration et des règles d'évolution communes. |
-| Node | VM Compute Engine exécutant notamment kubelet et les conteneurs des Pods. |
-| Pod | Unité d'exécution Kubernetes regroupant un ou plusieurs conteneurs. |
-| Service | Point d'accès stable à des Pods ; ClusterIP interne, LoadBalancer pouvant créer une ressource GCP facturable. |
-
-Dans le control plane, **API Server** reçoit les requêtes, **Scheduler** place
-les Pods, **Controller Manager** réconcilie les objets et **etcd** conserve l'état
-Kubernetes. Google en gère l'exploitation ; nous n'installons pas ces composants
-sur une VM supplémentaire. L'état etcd/Kubernetes n'est pas le state Terraform.
-
-En **GKE Standard**, l'équipe choisit zone, machines, pools, disques, capacité et
-sécurité. Google gère le control plane et les mécanismes d'exploitation managés.
-Nous configurons ensuite les accès, namespaces, workloads et leurs politiques.
-Un cluster vide ne signifie pas absence de nœuds ni absence de coût.
-
-## Configuration réelle des fichiers
-
-| Paramètre | DEV | PROD, exemple préparé |
+| Paramètre | DEV | PROD |
 | --- | --- | --- |
-| project_id | masterpoulet-dev | masterpoulet-prod |
-| cluster_name | masterpoulet-dev-gke | masterpoulet-prod-gke |
-| region | europe-west1 | europe-west3 |
-| zone | europe-west1-b | europe-west3-b |
-| network_name | masterpoulet-dev-vpc | masterpoulet-prod-vpc |
-| subnet_name | masterpoulet-dev-vpc-subnet | masterpoulet-prod-vpc-subnet |
-| pods_range_name | masterpoulet-dev-vpc-subnet-pods | masterpoulet-prod-vpc-subnet-pods |
-| services_range_name | masterpoulet-dev-vpc-subnet-services | masterpoulet-prod-vpc-subnet-services |
-| node_service_account_id | masterpoulet-dev-gke-nodes | masterpoulet-prod-gke-nodes |
-| node_pool_name | github-runners | github-runners |
-| machine_type | e2-standard-2 | e2-standard-2 |
-| disk_size_gb / disk_type | 30 / pd-standard | 30 / pd-standard |
-| node_autoscaling | min=1, max=2 | min=1, max=2 |
-| deletion_protection | false, démonstration | true |
+| Projet / cluster | masterpoulet-dev / masterpoulet-dev-gke | masterpoulet-prod / masterpoulet-prod-gke |
+| Région / zone unique | europe-west1 / europe-west1-b | europe-west3 / europe-west3-b |
+| Bucket / préfixe, workspace default | masterpoulet_bucket / gke/dev | masterpoulet_prod_bucket / gke/prod |
+| deletion_protection conservée | false | true |
+| system | 1 e2-medium fixe, sans autoscaling | identique |
+| github-runners | e2-standard-2, total 0–2 | identique |
+| Disques | 30 GiB pd-standard par nœud | identique |
 
-Chaque ligne correspond à une variable de variables.tf. Les validations
-contrôlent notamment les IDs, le disque entier d'au moins 30 Go et les bornes
-entières 1 <= min <= max. L'autoscaling 1–2 est la **valeur actuelle**, pas une
-limite universelle codée pour tous les futurs usages. La précondition du cluster
-vérifie que sa zone appartient à la région du subnet.
+Les workers conservent le nom github-runners et l'adresse Terraform
+google_container_node_pool.runners. Aucun troisième pool, déplacement de
+state ou remplacement de cluster. Labels : workload=system et workload=worker.
+Seuls les workers portent workload=worker:NoSchedule ; seuls les runners ARC
+le tolèrent. Controller/listener sélectionnent le système. Les agents GKE
+DaemonSet nécessaires restent sur chaque nœud et sont inclus dans le budget.
 
-| Fichier | Rôle et dépendances |
-| --- | --- |
-| providers.tf / .terraform.lock.hcl | Terraform >=1.6 et <2 ; Google ~>7.0 verrouillé en 7.46.1 ; projet/région/zone explicites. |
-| backend.tf / backends/*.hcl | Backend GCS partiel et sélection d'environnement. |
-| variables.tf / dev.tfvars / prod.tfvars | Types, validations et valeurs d'environnement. |
-| network.tf | Data sources VPC/subnet ; vérifie appartenance au VPC, présence de deux secondaires distinctes et Private Google Access. |
-| iam.tf | google_service_account.nodes et google_project_iam_member.nodes. |
-| cluster.tf | google_container_cluster.gke ; attend le rôle IAM des nœuds. |
-| node-pool.tf | google_container_node_pool.runners ; référence le cluster et le compte des nœuds. |
-| outputs.tf | Noms, zone, email de service account et commande get-credentials. |
-| .gitignore | Exclut cache, états et plans ; conserve le lock provider. |
+Les workers utilisent total_min_node_count=0, total_max_node_count=2 et
+initial_node_count=0, sans node_count. Le lifecycle ignore uniquement la taille
+initiale pour laisser l'autoscaler agir. Les bornes sont totales ; les pools
+sélectionnent actuellement une seule zone. Le système utilise node_count=1,
+sans bloc autoscaling. Types, disques, capacité, labels et taints sont
+configurables ; maintenir leur correspondance avec le root runners.
 
-```mermaid
-flowchart TD
-    Net["foundation : VPC et subnet existants"] --> Data["network.tf : lecture et contrôles"]
-    SA["Compte dédié aux nœuds"] --> IAM["Rôle minimal GKE"]
-    Data --> Cluster["Cluster Standard zonal"]
-    IAM --> Cluster
-    Cluster --> Pool["github-runners : 1 à 2 nœuds privés"]
-    SA --> Pool
-    Pool --> NAT["Cloud NAT existant : accès sortant"]
-```
+Nœuds privés, Workload Identity/GKE_METADATA, identités, scopes, Secure Boot,
+COS_CONTAINERD, Dataplane V2, canal REGULAR et auto-repair/upgrade sont conservés.
+Les upgrades gardent max_surge=0, max_unavailable=1 : le seul nœud système
+constitue un point de défaillance et les upgrades interrompent ARC brièvement.
+Les endpoints IP restent désactivés ; l'accès DNS reste authentifié par IAM.
 
-### Réseau et sécurité
+Les deux clusters sont RUNNING en 1.36.4-gke.2377000 avec un seul pool, un
+e2-standard-2 permanent, 30 GiB et autoscaling 1–2. Les 18 pods observés sont
+Kubernetes et ARC ; aucun pod Pixel War. L'application du dépôt est serverless
+et n'est pas déplacée. L'inventaire Cloud Run/Functions PROD ne retourne aucun
+service : sa disponibilité publique ne peut pas être attestée ici, sans
+endpoint applicatif de référence. Aucun changement applicatif n'est effectué.
 
-Le cluster est VPC-native : il utilise les secondaires **existantes**, sans
-création automatique de subnet/plage. En DEV, la primaire est 10.0.1.0/24,
-les Pods 10.16.0.0/21 et les Services 10.16.8.0/24. Ces valeurs sont détaillées
-[dans foundation](../foundation/README.md). PROD doit d'abord recevoir ses
-secondaires : elles sont absentes du subnet audité.
+## Pourquoi e2-medium
 
-Cluster et pool demandent des **nœuds privés**, sans IP publique individuelle.
-Le NAT foundation couvre leurs plages ; Private Google Access donne accès aux
-API Google prises en charge. Cela n'autorise pas tout trafic entrant. Les
-endpoints IP du control plane sont désactivés ; l'endpoint DNS autorise l'accès
-utilisateur authentifié via IAM. Les tokens Kubernetes et certificats client
-via DNS ne sont pas activés. Les droits IAM et Kubernetes restent nécessaires.
+Chaque cluster demande **930m CPU et 1 756 927 616 octets (1 675,54 MiB)**,
+conteneurs secondaires compris. Une e2-small de 2 GiB offre au plus environ
+**1 436 MiB** après réservations GKE : 25 % puis 100 MiB d'éviction.
+Le déficit d'au moins **239,54 MiB** l'exclut, indépendamment des consommations.
 
-Le compte DEV est
-`masterpoulet-dev-gke-nodes@masterpoulet-dev.iam.gserviceaccount.com`, avec le seul
-rôle attribué par cette stack **roles/container.defaultNodeServiceAccount** pour
-les tâches système GKE. Aucune clé privée ni rôle Editor/Owner n'est créé.
-Le scope cloud-platform n'élargit pas les permissions IAM. Les droits de lecture
-d'images Artifact Registry privées seront à traiter séparément si nécessaire.
+Une e2-medium de 4 GiB offre théoriquement **2 972 MiB et 940m CPU**
+(réservation CPU E2 partagées : 1 060m). Le noyau voit moins que la RAM nominale :
+lire Allocatable après création. Les requests CPU controller/listener passent
+de 100m à **50m chacune**, avec 1–3m mesurés ponctuellement, en gardant limites
+500m/256Mi et requests mémoire 128Mi. Le budget devient **830m**, laissant
+110m, dont 50m pour le pod supplémentaire d'un rolling update du controller.
+La marge mémoire théorique reste d'environ 1 296 MiB. Ne pas ajouter d'autres
+workloads permanents.
 
-Workload Identity Federation est configurée avec le pool
-masterpoulet-dev.svc.id.goog et GKE_METADATA sur les nœuds. Les identités et droits
-des futurs Pods restent à configurer : cela ne rend pas tous les jobs autorisés
-à GCP. Ce mécanisme diffère de la future fédération GitHub OIDC→GCP.
+e2-medium est le plus petit candidat E2 compatible avec ces requests, **à
+valider sur le nœud réel avant bascule**. Les addons peuvent adapter leurs
+requests et une mesure ponctuelle ne prouve pas la tenue sous charge.
+Si Allocatable ne suffit pas, qu'un rollout reste Pending ou qu'une pression
+CPU/RAM apparaît, conserver l'ancien pool permanent et revoir le type système
+avec un nouveau plan. Ne pas réduire les réservations ni supprimer les agents.
+30 GiB gardent une marge raisonnable pour images, agents et logs.
 
-Autres réglages : COS_CONTAINERD, Shielded Nodes, Secure Boot, surveillance
-d'intégrité, Dataplane V2, canal REGULAR, réparation et upgrades automatiques.
-Logs/métriques limités aux composants système ; Managed Prometheus et l'addon
-HTTP Load Balancing sont désactivés. Les futurs logs de jobs doivent être
-consultés via GitHub/runners ou configurés explicitement.
+Sources : [réservations GKE](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/plan-node-sizes),
+[E2 partagées](https://docs.cloud.google.com/compute/docs/general-purpose-machines).
 
-### Capacité et disponibilité
+## Plans et drift
 
-Un seul pool permanent, une seule zone, aucun GPU et pas de Spot. Le pool a
-32 Pods maximum par nœud, incluant les Pods système ; cette limite ne garantit
-pas que la CPU/mémoire d'une e2-standard-2 suffise à 32 jobs. Les demandes de
-ressources des futurs runners devront être adaptées.
+Plans distants analysés sans apply le 20 novembre :
 
-L'initial_node_count démarre à 1 ; le lifecycle ignore ses variations ultérieures
-pour laisser l'autoscaler agir sans recréer le pool. min_node_count=1 et
-max_node_count=2 s'appliquent par zone ; comme une seule zone est sélectionnée,
-il s'agit ici d'un total de 1 à 2 nœuds.
-
-Les upgrades ont **max_surge=0, max_unavailable=1** : pas de nœud supplémentaire
-pour la mise à niveau, mais des jobs peuvent être interrompus, surtout avec un
-seul nœud. Le cluster zonal ne fournit pas une disponibilité multi-zone. Prévoir
-jobs relançables et fenêtres de maintenance avec l'équipe.
-
-GKE crée brièvement un pool initial avant que remove_default_node_pool=true le
-supprime. cluster.tf lui applique aussi une petite configuration privée et le
-compte dédié. Cette VM/disque temporaire peut être facturée ; seul github-runners
-reste ensuite. Il n'y a pas de second pool permanent.
-
-## State, statut observé et historique
-
-| Cible | Couple | Bucket / préfixe |
+| Root | DEV | PROD |
 | --- | --- | --- |
-| DEV | backends/dev.hcl + dev.tfvars | masterpoulet_bucket / gke/dev |
-| PROD | backends/prod.hcl + prod.tfvars | masterpoulet_prod_bucket / gke/prod |
+| foundation | aucun changement | 2 créations : Router et NAT manquants |
+| gke | 1 création system, 1 modification workers, 0 suppression | identique |
+| runners | 0 création, 2 mises à jour en place, 0 suppression | identique |
 
-Workspace default, objets gke/dev/default.tfstate et gke/prod/default.tfstate.
-Les fichiers PROD s'appellent prod.tfvars et backends/prod.hcl.
-Le réseau garde son state foundation indépendant. GKE ne possède que quatre
-ressources managées ; les deux lectures réseau sont des data sources.
+Les plans GKE ne modifient ni cluster, réseau, secondaires, IAM, ni API.
+Le code initial omettait google_project_service.container pourtant dans les
+states : la déclaration avec disable_on_destroy=false est rétablie.
+Les noms Helm réels masterpoulet-dev-gke / masterpoulet-prod-gke sont préservés.
+DEV rétablit aussi atomic=true du controller, déjà déclaré dans le code.
 
-**Audit du 23 octobre 2026 en lecture seule** : cluster DEV RUNNING dans
-**europe-west1-b**, un nœud observé ; pool github-runners RUNNING, autoscaling
-activé 1–2, e2-standard-2, disque 30 Go pd-standard, nœuds privés et compte dédié.
-Les endpoints IP sont désactivés, le DNS autorisé et Workload Identity actif.
-Les quatre ressources sont présentes dans le state DEV. L'audit n'a pas vérifié
-la santé via kubectl, les Pods applicatifs ou une montée/descente de charge.
+Les secondaires PROD sont présentes. Aucun Router/NAT n'est retourné en PROD,
+malgré des nœuds privés et une route Internet par défaut. **Bloquer les tests
+runners PROD jusqu'à validation de la sortie GitHub/GHCR.** La restauration
+foundation est proposée par un plan indépendant, sans changement de code
+réseau dans cette branche ; son application exige une approbation explicite.
+Private Google Access ne remplace pas une sortie Internet vers GitHub.
 
-En PROD, l'API GKE est désactivée : l'inventaire a échoué, ce qui **ne prouve pas**
-l'absence d'un cluster. Aucun objet trouvé sous gke/prod ; la configuration et la
-zone europe-west3-b restent un exemple à revoir. Prévoir secondaires, API, agents
-de service, quotas et permissions avant tout déploiement PROD.
+## Migration progressive — DEV puis PROD
 
-À la préparation initiale, l'API DEV était désactivée et le plan proposait
-4 créations. Après un échec de création lié à node_locations, le compte et son
-IAM étaient déjà dans le state ; le plan corrigé proposait 2 créations, sans
-modifier ces identités. Depuis, le cluster est déployé. Ces anciens résultats
-ne remplacent pas un plan frais ; aucun nouveau plan n'a été lancé pour ce guide.
-Les anciens constats « API DEV désactivée » et « state DEV vide » sont historiques.
+**Chaque apply ci-dessous exige l'approbation explicite du plan correspondant.
+Aucun apply n'a été exécuté.** Attendre la fin des runners actifs et coordonner
+les jobs. Ne pas appliquer le plan GKE complet avant validation d'ARC sur system.
+Depuis la racine du dépôt, PowerShell :
 
-## Préparer un plan DEV
+~~~powershell
+$tfEnv = 'dev'
+$gcpProject = 'masterpoulet-dev'
+$gkeZone = 'europe-west1-b'
+$gkeCluster = 'masterpoulet-dev-gke'
+$env:TF_DATA_DIR = "$PWD/tmp/gke-$tfEnv"
+$env:GOOGLE_OAUTH_ACCESS_TOKEN = gcloud.cmd auth print-access-token
+terraform '-chdir=infra/gke' init -input=false -lockfile=readonly "-backend-config=backends/$tfEnv.hcl"
+terraform '-chdir=infra/gke' workspace show
+terraform '-chdir=infra/gke' state list
+terraform '-chdir=infra/gke' validate
+terraform '-chdir=infra/gke' plan -input=false -lock-timeout=60s "-var-file=$tfEnv.tfvars" '-target=google_container_node_pool.system' "-out=$tfEnv-system.tfplan"
+terraform '-chdir=infra/gke' show "$tfEnv-system.tfplan"
+# Après approbation du plan ciblé uniquement :
+terraform '-chdir=infra/gke' apply "$tfEnv-system.tfplan"
+gcloud.cmd container clusters get-credentials $gkeCluster "--zone=$gkeZone" "--project=$gcpProject" --dns-endpoint
+$kubeContext = 'gke_{0}_{1}_{2}' -f $gcpProject,$gkeZone,$gkeCluster
+kubectl "--context=$kubeContext" get nodes -L workload,cloud.google.com/gke-nodepool
+kubectl "--context=$kubeContext" describe nodes -l workload=system
+kubectl "--context=$kubeContext" get pods -A -o wide
+~~~
 
-Les [installations et connexions communes](../README.md#préparer-windows-et-les-identités)
-précèdent ces commandes, lancées depuis la racine du dépôt :
+Le ciblage est une exception de migration. Son plan doit créer uniquement
+system sans modifier cluster ou ancien pool. Vérifier Ready, Allocatable,
+requests, agents et DNS. Déplacer ensuite ARC en gardant l'ancien minimum à 1 :
 
-```powershell
-Set-Location infra/gke
-terraform init -reconfigure -backend-config="backends/dev.hcl" -input=false
-if ($LASTEXITCODE -ne 0) { throw 'Échec backend GKE DEV.' }
-$gkeWorkspace = terraform workspace show
-if ($LASTEXITCODE -ne 0 -or $gkeWorkspace -ne 'default') { throw 'Workspace default requis.' }
-terraform fmt -check -recursive
-if ($LASTEXITCODE -ne 0) { throw 'Format incorrect.' }
-terraform validate
-if ($LASTEXITCODE -ne 0) { throw 'Configuration invalide.' }
-terraform plan -var-file="dev.tfvars" -input=false -lock-timeout=60s -out="dev-gke.tfplan"
-if ($LASTEXITCODE -ne 0) { throw 'Échec plan GKE DEV.' }
-terraform show dev-gke.tfplan
-terraform state list
-terraform output
-```
+~~~powershell
+$env:TF_DATA_DIR = "$PWD/tmp/runners-$tfEnv"
+terraform '-chdir=infra/runners' init -input=false -lockfile=readonly "-backend-config=backends/$tfEnv.hcl"
+terraform '-chdir=infra/runners' validate
+terraform '-chdir=infra/runners' plan -input=false -lock-timeout=60s "-var-file=$tfEnv.tfvars" "-out=$tfEnv-arc.tfplan"
+terraform '-chdir=infra/runners' show "$tfEnv-arc.tfplan"
+# Après approbation :
+terraform '-chdir=infra/runners' apply "$tfEnv-arc.tfplan"
+kubectl "--context=$kubeContext" -n arc-systems rollout status deployment/arc-gha-rs-controller --timeout=300s
+kubectl "--context=$kubeContext" -n arc-systems get pods -o wide
+kubectl "--context=$kubeContext" -n arc-runners get autoscalingrunnersets
+~~~
 
-Sur un déploiement aligné, attendre No changes ; investiguer tout remplacement
-ou IAM inattendu. Sur une stack vide, quatre créations sont définies. Le plan ne
-garantit pas tous les droits de création : le premier plan avait pu réussir
-sans API GKE activée. Les stacks n'activent aucune API et ne créent pas de bucket.
-Vérifier notamment container.googleapis.com, les droits GKE/IAM/actAs et quotas.
+Vérifier controller ET listener Ready sur system, puis la capacité pour tous
+les autres pods permanents. Les nouveaux runners attendent encore le label
+worker posé à l'étape suivante : ne pas envoyer de job avant la fin de bascule.
 
-Pour une application ultérieure, utiliser [la procédure contrôlée](../README.md#planifier-et-déployer).
-Ne pas appliquer un ancien dev-gke.tfplan trouvé sur le PC. Conserver les états
-après un échec partiel et refaire un plan au lieu de recréer manuellement les comptes.
+~~~powershell
+$env:TF_DATA_DIR = "$PWD/tmp/gke-$tfEnv"
+$env:GOOGLE_OAUTH_ACCESS_TOKEN = gcloud.cmd auth print-access-token
+terraform '-chdir=infra/gke' plan -input=false -lock-timeout=60s "-var-file=$tfEnv.tfvars" "-out=$tfEnv-workers.tfplan"
+terraform '-chdir=infra/gke' show "$tfEnv-workers.tfplan"
+# Après approbation : uniquement adaptation du pool workers existant.
+terraform '-chdir=infra/gke' apply "$tfEnv-workers.tfplan"
+gcloud.cmd container node-pools list "--cluster=$gkeCluster" "--zone=$gkeZone" "--project=$gcpProject"
+kubectl "--context=$kubeContext" get nodes -L workload
+kubectl "--context=$kubeContext" get pods -A -o wide
+kubectl "--context=$kubeContext" get events -A --sort-by=.lastTimestamp
+~~~
 
-| Output | Usage |
-| --- | --- |
-| cluster_name | Nom du cluster. |
-| cluster_location | Zone unique. |
-| node_pool_name | Nom du pool runners. |
-| node_service_account_email | Identité des nœuds, sans clé privée. |
-| get_credentials_command | Commande de connexion utilisant le DNS et le projet explicite. |
+NoSchedule n'évince pas les pods déjà placés. L'autoscaler doit pouvoir
+déplacer les pods système non-DaemonSet vers system. Sur GKE 1.36, les pods
+kube-system récents peuvent retarder le retrait d'au moins une heure.
+Lire PDB, annotations et événements avant intervention. Aucun pool actif
+n'est supprimé : github-runners est adapté en place.
+Replanifier GKE/runners après migration ; aucun changement résiduel attendu.
 
-## Se connecter depuis un nouveau PC Windows
+Après réussite de la [recette ARC](../runners/README.md#recette-après-déploiement),
+reprendre toute la procédure avec ces valeurs PROD :
 
-Installer Google Cloud CLI officiel, kubectl et le plugin selon
-[le guide commun](../README.md#préparer-windows-et-les-identités). Si seul gcloud
-est installé, ajouter les composants :
+~~~powershell
+$tfEnv = 'prod'
+$gcpProject = 'masterpoulet-prod'
+$gkeZone = 'europe-west3-b'
+$gkeCluster = 'masterpoulet-prod-gke'
+~~~
 
-```powershell
-gcloud.cmd components install kubectl gke-gcloud-auth-plugin
-if ($LASTEXITCODE -ne 0) { throw 'Installation incomplète.' }
-gke-gcloud-auth-plugin --version
-kubectl version --client
-gcloud.cmd auth login
-if ($LASTEXITCODE -ne 0) { throw 'Connexion Google échouée.' }
-gcloud.cmd auth list
-```
+Avant cela, examiner et faire approuver le plan foundation PROD séparément,
+avec son TF_DATA_DIR dédié, backends/prod.hcl et prod.tfvars. Ne pas appliquer
+bootstrap, déplacer les states ou modifier WIF/IAM/secrets pour cette migration.
 
-Utiliser son propre compte disposant d'accès GKE, de la permission
-container.clusters.connect pour l'endpoint DNS et des autorisations Kubernetes
-voulues. Les permissions IAM/RBAC des trois développeurs ne sont pas créées par
-cette stack. Un administrateur doit les attribuer au bon périmètre ; aucun besoin
-de donner Owner à tous. ADC est nécessaire pour Terraform, pas pour simplement
-exécuter cette connexion kubectl avec le compte gcloud par défaut.
+## Rollback sans recréer le cluster
 
-Récupérer la configuration du **cluster DEV** :
+Arrêter l'envoi de jobs et conserver system pendant le rollback.
+Avec le code de cette branche et le TF_DATA_DIR GKE de la cible :
 
-```powershell
-gcloud.cmd container clusters get-credentials masterpoulet-dev-gke --project=masterpoulet-dev --zone=europe-west1-b --dns-endpoint
-if ($LASTEXITCODE -ne 0) { throw 'Impossible de configurer la connexion GKE.' }
-kubectl config current-context
-kubectl get nodes
-kubectl get pods -n kube-system
-kubectl get namespaces
-```
+~~~powershell
+terraform '-chdir=infra/gke' plan "-var-file=$tfEnv.tfvars" '-var=node_autoscaling={min=1,max=2}' '-var=worker_node_taints=[]' '-var=worker_node_labels={workload="github-runners"}' "-out=$tfEnv-rollback-workers.tfplan"
+~~~
 
-La commande get-credentials crée/met à jour l'entrée locale **kubeconfig**, par
-défaut dans le fichier .kube/config du profil utilisateur ; KUBECONFIG peut
-changer ce chemin. Le contexte sélectionne cluster, endpoint et méthode
-d'authentification. Ne pas committer ce fichier ni le copier entre développeurs.
-Le plugin obtient les credentials nécessaires sans partager une clé statique.
+Après revue, approbation et application du plan enregistré, vérifier
+github-runners Ready avant de déplacer ARC. Sélectionner le TF_DATA_DIR runners
+de la même cible et préparer :
 
-Vérifier le contexte avant toute opération kubectl : d'autres clusters peuvent
-être mémorisés sur le même PC. --dns-endpoint est important puisque les endpoints
-IP sont désactivés. L'accès exige une connectivité Internet/DNS/HTTPS appropriée,
-mais ne nécessite pas un bastion ni que le PC du créateur soit allumé. Chaque
-membre se connecte **directement à GCP avec son compte et ses permissions**.
+~~~powershell
+terraform '-chdir=infra/runners' plan "-var-file=$tfEnv.tfvars" '-var=system_node_selector={"cloud.google.com/gke-nodepool"="github-runners"}' '-var=worker_node_selector={}' "-out=$tfEnv-rollback-arc.tfplan"
+~~~
 
-Dans la console, choisir masterpoulet-dev puis **Kubernetes Engine → Clusters** :
-ouvrir masterpoulet-dev-gke, regarder la zone, les paramètres réseau et la
-sécurité, puis l'onglet **Nodes** pour les nœuds et le pool github-runners.
-Selon la version de l'interface, la navigation Node pools est présentée dans
-les détails du cluster. La console ne remplace pas un test des droits kubectl.
-
-## Exploitation et autoscaling
-
-Contrôles de santé en lecture seule, après vérification du contexte DEV :
-
-```powershell
-kubectl get nodes -o wide
-kubectl get nodes -L cloud.google.com/gke-nodepool
-kubectl get pods -n kube-system
-kubectl get namespaces
-kubectl get events -A --sort-by=.lastTimestamp
-kubectl auth can-i list pods --namespace=kube-system
-gcloud.cmd container node-pools describe github-runners --cluster=masterpoulet-dev-gke --zone=europe-west1-b --project=masterpoulet-dev --format='yaml(status,locations,autoscaling,config.machineType,config.diskSizeGb,config.diskType,networkConfig,upgradeSettings)'
-```
-
-Les nœuds devraient être Ready ; examiner Pods Pending, CrashLoopBackOff et les
-events plutôt que de relancer des déploiements au hasard. Certains Pods de type
-Job terminés peuvent normalement être Completed. get nodes -o wide permet
-également de contrôler l'absence d'IP publique ; un statut GCP RUNNING ne suffit
-pas à démontrer cette santé Kubernetes.
-
-**Autoscaling configuré** signifie que le pool accepte de passer de 1 à 2 nœuds.
-**Autoscaling démontré** exige un test documenté : charge avec requests réalistes,
-Pods Pending faute de ressources, ajout du second nœud, puis retrait après baisse
-de charge et délai. Aucun tel test n'a été effectué pour cette documentation.
-L'autoscaler ne connaît pas directement la file GitHub : les futurs runners
-créent la demande de Pods, puis le cluster autoscaler réagit à leur planification.
-Avec min=1, il ne supprimera pas le dernier nœud à vide.
-
-## Helm et runners : prochaines étapes
-
-**Helm** est un gestionnaire de packages Kubernetes : un chart décrit des objets
-et des paramètres ; une release représente une installation. Il ne remplace ni
-Terraform pour le réseau/cluster, ni Kubernetes pour l'exécution des Pods.
-
-Le **Kubernetes Controller Manager** est un composant du control plane managé.
-L'**Actions Runner Controller (ARC)** est un autre contrôleur, à installer dans
-le cluster pour orchestrer des runners GitHub Actions. Ils ne remplissent pas
-le même rôle et ARC n'est pas fourni par la simple création d'un cluster GKE.
-
-Aucun chart Helm, installation ARC, identité GitHub de runner, runner scale set
-ou liaison de workflow vers ces runners n'est défini dans les stacks auditées.
-Les workloads du cluster n'ont pas été inventoriés via kubectl pendant l'audit :
-ne pas en déduire qu'une installation manuelle existe ou n'existe pas.
-
-Étapes futures à préparer dans une tâche distincte :
-
-1. Choisir et vérifier les versions Helm/ARC et la méthode d'authentification GitHub, en gérant les secrets hors Git.
-2. Définir namespaces, permissions, isolation des jobs et identités de workloads. Exécuter du code de PR non fiable nécessite une conception spécifique.
-3. Installer le contrôleur et le runner scale set, avec requests/limits adaptés aux petites VM.
-4. Définir des labels de runners et un workflow de test ciblé ; ne pas migrer tous les workflows d'un coup.
-5. Démontrer la création/suppression de runners puis le passage de 1 à 2 nœuds, et mesurer le coût.
-
-Le cluster sert à **exécuter les jobs de CI**, pas à héberger l'application
-serverless. Les workflows actuels qui publient les images GHCR et les contrôles
-Terraform ne démontrent pas une exécution sur ce pool. OIDC GitHub→GCP reste
-également distinct de Workload Identity déjà configurée dans GKE.
-
-## Détruire GKE pour économiser
-
-Après la démonstration, le dernier nœud reste facturé même si les runners sont
-inactifs. Voir [les coûts communs](../README.md#coûts-et-économies). Les quatre
-ressources managées de cette stack sont supprimables indépendamment du réseau.
-Les ressources techniques créées par GKE, telles que les VM du pool, suivent le
-cycle de vie du cluster ; des disques/Services futurs peuvent avoir une autre
-politique de conservation.
-
-Avant suppression du cluster partagé : accord de l'équipe, arrêt des jobs,
-sauvegarde des données, inventaire des PVC/PV, Services LoadBalancer, Ingress,
-IP et intégrations GitHub. Examiner les obligations de conservation. Depuis
-infra/gke, réinitialiser explicitement DEV puis préparer le plan :
-
-```powershell
-terraform init -reconfigure -backend-config="backends/dev.hcl" -input=false
-if ($LASTEXITCODE -ne 0) { throw 'Échec backend GKE DEV.' }
-$gkeWorkspace = terraform workspace show
-if ($LASTEXITCODE -ne 0 -or $gkeWorkspace -ne 'default') { throw 'Workspace default requis.' }
-terraform plan -destroy -var-file="dev.tfvars" -input=false -lock-timeout=60s -out="dev-gke-destroy.tfplan"
-if ($LASTEXITCODE -ne 0) { throw 'Échec plan de nettoyage.' }
-terraform show dev-gke-destroy.tfplan
-```
-
-Ce plan ne supprime rien. Vérifier qu'il vise cluster, pool, compte dédié et son
-attribution IAM, **aucune ressource foundation**. Après revue et coordination,
-la suppression réelle peut être confirmée manuellement :
-
-```powershell
-$gkeConfirmation = Read-Host 'Supprimer GKE DEV après revue ? Saisir SUPPRIMER'
-if ($gkeConfirmation -cne 'SUPPRIMER') { throw 'Suppression annulée.' }
-terraform apply dev-gke-destroy.tfplan
-if ($LASTEXITCODE -ne 0) { throw 'Suppression incomplète : examiner le state.' }
-terraform state list
-gcloud.cmd container clusters list --project=masterpoulet-dev
-```
-
-L'application d'un plan enregistré ne demande pas un second yes. Cette procédure
-est documentaire et n'a pas été exécutée lors de sa rédaction. En PROD,
-deletion_protection=true bloque le nettoyage : une modification revue et appliquée
-de ce réglage est nécessaire au préalable. Ne pas retirer le state pour contourner
-la protection.
-
-Après suppression, vérifier Compute Engine, disques, IP et load balancers.
-Foundation, NAT et buckets restent et peuvent avoir des coûts. Ne pas supprimer
-leurs states. Pour recréer : vérifier foundation, refaire init/validate et un
-nouveau plan GKE, l'appliquer après revue, renouveler get-credentials, puis
-réinstaller les futurs workloads/Helm selon leur propre procédure. Aucun ancien
-plan binaire ne doit être réutilisé après un nettoyage.
+Après approbation/application, vérifier controller/listener et un job. Reporter
+les surcharges dans une branche de rollback pour les rendre reproductibles.
+Retirer system du code seulement après validation de son remplacement et revue
+du plan de suppression du pool vide. Ne pas appliquer directement l'ancien
+commit, qui pourrait supprimer system trop tôt. Ne jamais restaurer un vieux
+state ni recréer le cluster.
 
 ## Diagnostic Kubernetes
 
-| Erreur / symptôme | Vérification et correction |
-| --- | --- |
-| gke-gcloud-auth-plugin absent | Installer le composant gcloud, vérifier PATH et --version ; rouvrir PowerShell. |
-| Get-credentials 403 / cluster invisible | Contrôler compte, projet et zone, API activée, permissions GKE et container.clusters.connect. |
-| Timeout / DNS introuvable | Vérifier Internet, DNS, proxy/firewall local et contexte ; refaire get-credentials avec --dns-endpoint. Ne pas exposer une IP publique de contrôle pour contourner. |
-| Unauthorized | Vérifier auth login et le plugin, puis renouveler le contexte. |
-| Forbidden | L'authentification fonctionne mais l'autorisation manque ; vérifier IAM et RBAC pour le namespace/objet, via auth can-i. |
-| Plages secondaires absentes | Lire le subnet dans la bonne région ; faire revoir/appliquer séparément foundation, sans créer des plages de remplacement dans GKE. |
-| Apply partiellement réussi | Lire state list/show ; garder comptes/IAM déjà gérés, corriger puis refaire un plan. |
-| Nœud privé sans sortie | Vérifier NAT, subnet couvert, routes, règles de sortie et Private Google Access ; ne pas attribuer une IP publique au hasard. |
-| Cluster RUNNING mais Pods en erreur | Examiner Ready, events, ressources CPU/mémoire et images ; le statut GCP seul n'est pas une preuve de santé. |
+Un kubeconfig périmé retournait NotFound. Rafraîchir les credentials avec
+projet/zone/cluster et --dns-endpoint. Le provider Helm utilise kubeconfig_path
+et config_context ; KUBECONFIG seul ne remplace pas son config_path. Un plan
+recréant des releases déjà déployées doit faire vérifier cette connexion.
 
 ### Erreur node_locations
 
-Erreur rencontrée :
+Conserver location=var.zone sur le cluster sans node_locations à ce niveau.
+Chaque pool déclare [var.zone]. Ne pas changer la localisation d'un cluster
+existant pour cette optimisation.
 
-```text
-when using a multi-zonal cluster, node_locations should not contain the original 'zone'
-```
+Validation : terraform fmt -check -recursive, terraform validate et
+terraform test -var-file=dev.tfvars, puis prod.tfvars. Tests mockés, sans GCP.
 
-Pour un **cluster zonal**, location=var.zone fixe la zone principale ; définir
-node_locations au niveau cluster sert à demander des zones supplémentaires et
-ne doit pas répéter cette zone. La correction actuelle dans cluster.tf est :
-
-```hcl
-location = var.zone
-# Aucune ligne node_locations au niveau du cluster.
-```
-
-Dans le **node pool**, node_locations=[var.zone] est correct : il limite ses VM
-à europe-west1-b. Ne pas remplacer la zone du cluster par une région, ce qui
-changerait l'architecture et pourrait multiplier les nœuds par défaut. Le plan
-corrigé avait conservé google_service_account.nodes et google_project_iam_member.nodes
-sans changement. L'absence de node_locations dans le code cluster n'empêche pas
-GKE de retourner un champ calculé après création.
-
-Références : [accès kubectl et plugin](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl),
-[commande get-credentials](https://docs.cloud.google.com/sdk/gcloud/reference/container/clusters/get-credentials),
-[compte des nœuds](https://docs.cloud.google.com/kubernetes-engine/security/configure-node-service-accounts),
-[cluster Terraform](https://registry.terraform.io/providers/hashicorp/google/7.46.1/docs/resources/container_cluster),
-[node pool Terraform](https://registry.terraform.io/providers/hashicorp/google/7.46.1/docs/resources/container_node_pool).
+Résultats du 20 novembre : fmt récursif réussi, validate réussi pour bootstrap,
+foundation, GKE et runners ; quatre exécutions de tests Terraform réussies
+(GKE/runners × DEV/PROD), 30 tests Python foundation réussis, quatre lints et
+rendus Helm réussis, manifests vérifiés par kubectl en dry-run client sur les
+deux clusters, actionlint 1.7.12 réussi sur le smoke test. Les mocks exigent
+Terraform >=1.7 ; les contrôles ont utilisé Terraform 1.16.6.
+Le lint Helm émet l'avertissement de fusion attendu pour githubConfigSecret,
+une référence string au Secret existant plutôt que la table de valeurs par défaut.
+Les tests applicatifs et les scénarios réels de charge/scale-to-zero n'ont pas
+été exécutés. Aucun apply, destroy ou job GitHub n'a été déclenché.

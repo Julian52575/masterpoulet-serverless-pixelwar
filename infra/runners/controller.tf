@@ -20,9 +20,7 @@ resource "helm_release" "arc_controller" {
   values = [yamlencode({
     replicaCount = 1
     resources    = var.controller_resources
-    nodeSelector = {
-      "cloud.google.com/gke-nodepool" = var.node_pool_name
-    }
+    nodeSelector = var.system_node_selector
     serviceAccount = {
       create = true
       name   = "arc-controller"

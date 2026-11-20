@@ -19,9 +19,33 @@ variable "cluster_name" {
 }
 
 variable "node_pool_name" {
-  description = "Existing node pool used by the controller through its GKE node label."
+  description = "Existing worker pool, exclusively for ephemeral runner pods."
   type        = string
   default     = "github-runners"
+}
+
+variable "runner_scale_set_name" {
+  description = "Existing Helm release and GitHub runner label; preserve each environment's deployed name."
+  type        = string
+  default     = "masterpoulet-gke-runners"
+}
+
+variable "system_node_selector" {
+  description = "Controller and listener must remain available with zero workers."
+  type        = map(string)
+  default     = { workload = "system" }
+}
+
+variable "worker_node_selector" {
+  description = "Must match GKE worker_node_labels."
+  type        = map(string)
+  default     = { workload = "worker" }
+}
+
+variable "worker_tolerations" {
+  description = "Must match GKE worker_node_taints; controllers and listeners do not tolerate them."
+  type        = list(object({ key = string, operator = string, value = string, effect = string }))
+  default     = [{ key = "workload", operator = "Equal", value = "worker", effect = "NoSchedule" }]
 }
 
 variable "kubeconfig_path" {
@@ -48,7 +72,7 @@ variable "controller_resources" {
     limits   = object({ cpu = string, memory = string })
   })
   default = {
-    requests = { cpu = "100m", memory = "128Mi" }
+    requests = { cpu = "50m", memory = "128Mi" }
     limits   = { cpu = "500m", memory = "256Mi" }
   }
 }

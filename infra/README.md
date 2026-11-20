@@ -26,10 +26,12 @@ ou le [cluster GKE](gke/README.md).
 
 ## Objectif et architecture
 
-Nous gérons un réseau GCP et un petit cluster destiné aux **futurs runners GitHub
-Actions**. Ce cluster n'est pas la cible d'hébergement de l'application
-serverless. Le dépôt contient aussi l'application et sa stack Docker Compose
-locale ; cela ne prouve pas un déploiement cloud de l'application.
+Nous conservons les clusters GKE existants pour ARC et les runners GitHub
+Actions, avec un pool système permanent et un pool workers à la demande.
+L'application Pixel War reste dans la stack serverless, indépendante de GKE.
+La [procédure de migration](gke/README.md) impose DEV avant PROD, une validation
+de capacité et un plan approuvé à chaque étape. Aucun apply n'a été exécuté
+lors de cette préparation du 20 novembre 2026.
 
 L'**Infrastructure as Code** décrit les ressources dans des fichiers versionnés.
 Terraform compare cette description au réel et prépare les changements. Une
@@ -42,8 +44,8 @@ au lieu de dépendre d'une suite de clics connue d'une seule personne.
 | Terraform | Décrit et gère les ressources GCP, avec un state partagé. |
 | Docker | Construit et exécute des conteneurs ; Compose démarre l'application locale. |
 | Kubernetes / GKE | Orchestre les Pods ; Google gère le control plane GKE. |
-| Helm | Installe des ensembles de ressources Kubernetes via des charts ; étape future pour les runners. |
-| GitHub Actions | Exécute les workflows sur des runners ; l'intégration des runners GKE reste à faire. |
+| Helm | Installe le controller ARC et le runner scale set par deux releases Terraform. |
+| GitHub Actions | Exécute les workflows sur des runners ; ARC est installé ; les workflows courants utilisent ubuntu-latest. |
 
 ```mermaid
 flowchart LR
@@ -52,13 +54,13 @@ flowchart LR
     TF --> GS["State GKE : cluster et IAM"]
     TF --> VPC["VPC Masterpoulet"]
     VPC --> Subnet["Subnet : primaire, Pods, Services"]
-    Subnet --> Nodes["Nœuds privés GKE : 1 à 2 en DEV"]
+    Subnet --> Nodes["System : 1 fixe / workers : 0 à 2"]
     Router["Cloud Router"] --> NAT["Configuration Cloud NAT"]
     Nodes --> NAT --> Internet["Internet : sortie"]
     Dev --> DNS["Endpoint DNS : IAM et RBAC"]
     DNS --> CP["Control plane géré par Google"]
     CP --> Nodes
-    Future["Helm et Actions Runner Controller : futurs"] -.-> Nodes
+    Future["Helm et Actions Runner Controller"] --> Nodes
 ```
 
 Router–NAT est une relation de configuration : Cloud Router n'est pas une VM
@@ -111,18 +113,23 @@ Les verrous sont distincts : ne pas modifier les deux stacks simultanément.
 
 ## État observé et environnements
 
-**Audit en lecture seule du 23 octobre 2026**, sans nouveau plan ni déploiement
-pour cette documentation. Ces observations remplacent les anciennes indications
-de préparation ; elles ne constituent pas une garantie permanente de santé.
+**Audit en lecture seule du 20 novembre 2026**, depuis origin/main 69153ff.
 
 | Élément | DEV | PROD |
 | --- | --- | --- |
-| Projet | `masterpoulet-dev` | `masterpoulet-prod` |
-| Réseau | VPC/subnet, Router et NAT présents et référencés dans le state | VPC/subnet, Router et NAT présents et référencés dans le state |
-| Plages secondaires | Présentes : Pods `10.16.0.0/21`, Services `10.16.8.0/24` | Déclarées : `10.32.0.0/21`, `10.32.8.0/24` ; absentes du subnet observé |
-| GKE | `masterpoulet-dev-gke`, RUNNING, `europe-west1-b`, un nœud observé | Configuration préparée ; inventaire bloqué par l'API GKE désactivée, déploiement non confirmé |
-| Autoscaling | Activé 1–2 sur github-runners ; montée/descente non démontrée par cet audit | Exemple à revoir avant utilisation |
-| Helm / runners | Aucun déploiement défini par ces stacks ; fonctionnement non vérifié | Non définis par ces stacks |
+| Projet | masterpoulet-dev | masterpoulet-prod |
+| Région / zone | europe-west1 / europe-west1-b | europe-west3 / europe-west3-b |
+| VPC et secondaires | Présents ; foundation sans changement | Présents ; Router/NAT absents, plan foundation : 2 créations |
+| Cluster GKE | masterpoulet-dev-gke, RUNNING | masterpoulet-prod-gke, RUNNING |
+| Pool déployé | github-runners, 1 e2-standard-2, autoscaling 1–2 | Identique |
+| ARC déployé | arc + masterpoulet-dev-gke, charts 0.15.0 | arc + masterpoulet-prod-gke, charts 0.15.0 |
+| Application Kubernetes | Aucun pod applicatif observé | Aucun pod applicatif observé |
+| Proposition | system : 1 e2-medium ; workers : total 0–2 | Identique, tests bloqués tant que sortie Internet non validée |
+
+Les inventaires Cloud Run/Functions PROD sont vides ; la disponibilité publique
+de Pixel War n'a pas pu être attestée sans URL de référence. Aucun composant
+applicatif, réseau ou IAM n'est modifié pour réduire les coûts GKE.
+Voir le [dimensionnement et les plans](gke/README.md#plans-et-drift).
 
 ### Backends et states
 
@@ -136,12 +143,11 @@ chaque stack. Toutes les stacks utilisent `prod` pour PROD (fichiers et préfixe
 | GKE DEV | backends/dev.hcl | masterpoulet_bucket | gke/dev | gke/dev/default.tfstate |
 | GKE PROD | backends/prod.hcl | masterpoulet_prod_bucket | gke/prod | gke/prod/default.tfstate |
 
-Les trois premiers objets ont été trouvés. Aucun objet trouvé à `gke/prod` ne
-prouve pas l'absence de ressources hors Terraform. Les buckets existent, ne sont
-gérés par aucune des deux stacks et restent après destruction. Leur région
-`europe-west1` est indépendante des subnets. Versioning et protections avaient
-été vérifiés lors de leur préparation ; contrôler leur configuration actuelle
-avant toute modification. Un state présent n'est pas une preuve d'absence de dérive.
+Les states GKE et runners DEV/PROD ont été lus pour vérifier leurs propriétaires.
+Les states foundation restent séparés. Les buckets sont en europe-west1,
+indépendamment de la région des nœuds ; ne jamais déplacer ni recréer les states.
+Un state présent ne prouve pas l'absence de dérive : produire un plan récent.
+Les backends runners utilisent les mêmes buckets avec runners/dev et runners/prod.
 
 ## Comprendre Terraform
 
@@ -451,50 +457,94 @@ pas une clé GPG. Les hooks exigent le sign-off et avertissent si la signature
 est désactivée. Configurer sa propre clé selon CONTRIBUTOR.md ; ne partager
 aucune clé privée. Aucun commit n'est nécessaire pour consulter le cluster.
 
-Le job Terraform de [ci.yml](../.github/workflows/ci.yml) exécute
-`fmt -check -recursive -diff infra/`, puis `init -backend=false` et validate
-pour les modules dont les .tf sont **suivis par Git**. Il n'exécute aucun plan
-GCP ou apply et ne valide ni les permissions ni les coûts réels. Un fichier
-non suivi n'est pas disponible dans le checkout CI. Les workflows de release
-construisent/publient les images GHCR ; ils ne prouvent pas l'utilisation de
-runners GKE. Ne pas modifier la CI pour contourner une erreur locale.
+La CI actuelle découvre les roots possédant un backend, puis exécute fmt,
+init, validate et des plans distants DEV/PROD avec OIDC. Le déploiement
+terraform-deploy.yml vise foundation et serverless/functions ; il ne déploie
+pas GKE/runners. Un push de cette branche ne correspond pas à son déclencheur
+de déploiement par tag. Aucun workflow n'a été lancé manuellement pour ce travail.
+Les tests Terraform mockés GKE/runners se lancent localement avec
+terraform test -var-file=dev.tfvars puis prod.tfvars. Les tests applicatifs
+restent indépendants de la migration.
 
 ## Coûts et économies
 
-**Des nœuds sans jobs restent facturables.** Le minimum de 1 interdit une descente
-à zéro par le cluster autoscaler. La limite actuelle 1–2 réduit la capacité
-persistante mais n'est pas un plafond de dépenses pour le projet entier.
+**Le repos reste payant.** Modèle indicatif USD hors taxes/remises/crédits,
+730 h/mois, une IP NAT par projet, 30 GiB pd-standard par nœud, aucune VM Spot.
+Les tarifs régionaux proviennent du catalogue officiel Compute Engine consulté
+le 20 novembre 2026 : cœur E2 DEV 0,02399337 USD/h, RAM 0,00321609 USD/GiB/h ;
+PROD 0,02810370 et 0,00376602. Le modèle e2-medium retient une capacité soutenue
+d'un vCPU et 4 GiB, contre deux vCPU et 8 GiB pour e2-standard-2.
+Vérifier le SKU partagé exact dans le devis Billing avant engagement ; ce calcul
+est une estimation, pas une facture contractuelle.
 
-| Poste | Facturation possible | Après suppression de GKE |
+| Tarif retenu | DEV europe-west1 | PROD europe-west3 |
 | --- | --- | --- |
-| VM | 1–2 e2-standard-2 en fonctionnement, même inoccupées. | Normalement supprimées avec le pool ; contrôler Compute Engine. |
-| Disques | 30 Go pd-standard par nœud ; futurs volumes. | Les futurs volumes peuvent rester selon leur politique. |
-| Gestion GKE | Frais de control plane. | Arrêtent avec la suppression du cluster. |
-| NAT / IPv4 / réseau | Passerelle, IP utilisées, volume traité et sortie Internet. | Foundation reste ; vérifier IP et usages restants. |
-| GCS | States, versions et opérations. | Buckets volontairement conservés. |
-| Logs / métriques | Ingestion et rétention au-delà des franchises. | Les données conservées peuvent continuer à coûter. |
-| Futurs load balancers / IP / stockage | Créations par les workloads, non définies aujourd'hui par les stacks. | À inventorier explicitement après nettoyage. |
+| e2-medium / h | 0,03685773 | 0,04316778 |
+| e2-standard-2 / h | 0,07371546 | 0,08633556 |
+| pd-standard / GiB-mois | 0,040 | 0,048 |
+| Système VM / mois | 26,91 | 31,51 |
+| Système disque / mois | 1,20 | 1,44 |
+| Gestion GKE / mois | 73,00 | 73,00 |
+| NAT permanent : VM + une IP / mois | 1,022 + 3,65 | 1,022 + 3,65 après restauration |
 
-Au 23 octobre 2026 : gestion GKE affichée à **0,10 USD/heure**, crédit GKE mensuel
-possible de **74,40 USD par compte de facturation** pour un cluster zonal selon
-éligibilité et autres usages. Ce crédit ne paie pas VM, disques ou NAT. Les crédits
-étudiants/promotionnels ont leurs propres limites et échéances : ne pas supposer
-leur disponibilité. Voir la [tarification GKE](https://cloud.google.com/kubernetes-engine/pricing).
+Comparaison **à sortie NAT fonctionnelle dans les deux environnements**.
+Avant : un worker permanent, deux en usage intensif. Après : un système permanent
+plus H heures-nœud workers ; un worker 1 h/j donne H=30, 4 h/j H=120.
+Intensif signifie deux workers 24h/24, H=1460. Deux workers pendant 1 h/j
+consomment H=60. La période de démarrage et les délais de scale-down s'ajoutent
+à ces heures utiles.
 
-Public NAT comprend notamment, jusqu'à 32 VM, 0,0014 USD/VM utilisatrice/heure,
-0,005 USD/IPv4 NAT/heure et 0,045 USD/GiB traité, plus la sortie Internet. Tarifs
-indicatifs en USD à revérifier selon devise et contrat ; l'allocation automatique
-peut utiliser plusieurs IP. Voir la [tarification réseau](https://cloud.google.com/vpc/network-pricing).
+| Usage | DEV avant → après | PROD avant → après | Cumul avant → après | Économie cumulée |
+| --- | --- | --- | --- | --- |
+| Inactif, H=0 | 132,68 → 105,78 | 142,14 → 110,62 | 274,82 → 216,40 | 58,42/mois |
+| 1 h/j, H=30 | 132,68 → 108,08 | 142,14 → 113,32 | 274,82 → 221,40 | 53,42/mois |
+| 4 h/j, H=120 | 132,68 → 114,99 | 142,14 → 121,39 | 274,82 → 236,38 | 38,44/mois |
+| Intensif, H=1460 | 188,72 → 217,85 | 207,62 → 241,60 | 396,34 → 459,45 | surcoût 63,11/mois |
 
-Créer des budgets/alertes dans **Billing → Budgets & alerts**, avec les bons
-projets, seuils et destinataires, et suivre les rapports. **Un budget d'alerte ne
-coupe pas automatiquement les ressources ou les dépenses.** Aucun budget,
-plafond ou automatisme de coupure n'est défini par nos stacks. Ne pas confondre
-une alerte avec des mécanismes spécifiques de limitation disponibles pour
-certains services. Voir les [budgets Cloud Billing](https://docs.cloud.google.com/billing/docs/how-to/budgets).
+Le PROD réellement observé **n'a pas de NAT** : son sous-total actuel au repos
+est environ 137,47 USD, soit 270,15 USD cumulés avec DEV. Restaurer sa sortie
+ajoute environ 4,67 USD/mois au repos (5,69 avec deux VM permanentes).
+Comparer cet état réel au futur fonctionnel donne environ **53,75 USD/mois**
+d'économie cumulée au repos. Ne pas présenter le NAT absent comme une économie
+permettant des runners fonctionnels.
 
-Après la démo, sauvegarder et [supprimer GKE proprement](#détruire-et-recréer),
-puis inventorier les ressources restantes. Ne pas détruire le réseau d'un collègue.
+Formules après, avant autres consommations :
+DEV = 105,77814 + 0,07675930 × H ;
+PROD avec NAT = 110,62448 + 0,08970816 × H.
+Elles incluent VM, boot disks proratisés, gestion GKE et NAT/IP.
+La séparation économise à faible utilisation, mais ajoute le système aux
+workers à forte utilisation ; ce n'est pas une garantie de dépense maximale.
+
+**Ajouter aux sous-totaux** :
+
+- 0,045 USD/GiB traité par NAT, plus sortie Internet selon destination/volume ;
+  une IP NAT supplémentaire ajoute 3,65 USD/mois. Cloud Router n'est pas une VM.
+- GCS : octets des states/versions/snapshots/sources, opérations et transferts
+  entre régions (notamment état PROD europe-west1 et workloads europe-west3).
+- Artifact Registry, images, logs/métriques au-delà des franchises, secrets,
+  Firestore, Pub/Sub, scheduler, API Gateway et fonctions selon leurs usages.
+  Aucun volume réel ni export Billing n'est disponible pour chiffrer ces postes
+  sans inventer une facture. Ils ne disparaissent pas avec les workers.
+- Un crédit GKE éligible peut retirer jusqu'à 74,40 USD par **compte de
+  facturation**, pas par projet. Ne pas le compter deux fois si DEV/PROD partagent
+  le compte ; crédits étudiants et promotionnels ne sont pas supposés acquis.
+
+L'inventaire Compute ne montre qu'une VM et son disque de 30 GiB par projet,
+sans disque Compute détaché. DEV possède une IP NAT en usage et plusieurs
+buckets de sources historiques (europe-west1, west2, west9), en plus des states
+et snapshots : vérifier propriétaire, versions et rétention avant tout
+nettoyage. Aucun doublon/bucket n'est supprimé automatiquement.
+L'inventaire PROD ne montre que son bucket de state.
+Les exports de facturation, la taille de tous les objets, le trafic et les
+autres services facturables ne sont pas audités exhaustivement.
+
+Sources : [catalogue tarifaire officiel](https://docs.cloud.google.com/billing/v1/how-tos/catalog-api),
+[Compute](https://cloud.google.com/products/compute/pricing/general-purpose),
+[disques](https://cloud.google.com/compute/disks-image-pricing),
+[GKE](https://cloud.google.com/kubernetes-engine/pricing),
+[NAT](https://cloud.google.com/nat/pricing),
+[GCS](https://cloud.google.com/storage/pricing).
+Les budgets sont des alertes, pas des coupe-circuits automatiques.
 
 ## Diagnostic
 

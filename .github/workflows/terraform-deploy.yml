@@ -25,108 +25,82 @@ on:
     tags: ["[0-9]+.[0-9]+.[0-9]+"] # release-please tags, e.g. 1.0.0
 permissions:
   contents: read
+  id-token: write # needed by the called workflow
 run-name: "Terraform ${{ inputs.mode || 'apply' }} ${{ inputs.environment || 'both' }} @ ${{ inputs.ref || github.ref_name }}"
+# Serial order: foundation, functions, frontend per environment, dev before prod.
+# !cancelled() keeps later legs running after a failure; the env conditions skip unselected ones.
 jobs:
-  # Builds the ordered list of (environment, root) legs the deploy job runs.
-  legs:
-    runs-on: ubuntu-latest
-    outputs:
-      legs: ${{ steps.build.outputs.legs }}
-    steps:
-      - id: build
-        env:
-          # Tag pushes have no inputs and deploy both
-          ENVIRONMENT: ${{ inputs.environment || 'both' }}
-        run: |
-          # Foundation first: functions depend on it.
-          roots=(foundation serverless/functions)
-          case "$ENVIRONMENT" in
-            both) envs=(dev prod) ;;
-            *)    envs=("$ENVIRONMENT") ;;
-          esac
-          legs=$(for e in "${envs[@]}"; do
-            for r in "${roots[@]}"; do
-              jq -nc --arg env "$e" --arg root "$r" '{env: $env, root: $root}'
-            done
-          done | jq -sc .)
-          echo "legs=$legs" >> "$GITHUB_OUTPUT"
-          echo "$legs"
+  dev-foundation:
+    if: ${{ !cancelled() && contains(fromJSON('["dev","both"]'), inputs.environment || 'both') }}
+    uses: ./.github/workflows/terraform-root.yml
+    secrets: inherit
+    with:
+      root: foundation
+      env: dev
+      mode: ${{ inputs.mode || 'apply' }}
+      allow_destroy: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
+      ref: ${{ inputs.ref || '' }}
 
-  deploy:
-    needs: legs
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    strategy:
-      # One leg at a time, in list order (see the legs job); a failed leg cancels the rest.
-      max-parallel: 1
-      matrix:
-        include: ${{ fromJSON(needs.legs.outputs.legs) }}
-    name: deploy (${{ matrix.root }}, ${{ matrix.env }})
-    permissions:
-      contents: read
-      id-token: write # workload identity federation
-    environment: ${{ matrix.env }} # add required reviewers on prd
-    env:
-      MODE: ${{ inputs.mode || 'apply' }} # tag pushes always apply
-      TF_ENV: ${{ matrix.env }}
-      # Terraform ignores TF_VAR_* a root does not declare.
-      TF_VAR_discord_client_id: ${{ vars.DISCORD_CLIENT_ID }}
-      TF_VAR_app_url: ${{ vars.APP_URL }}
-      TF_VAR_discord_public_key: ${{ secrets.DISCORD_PUBLIC_KEY }}
-      TF_VAR_discord_oauth_client_secret: ${{ secrets.DISCORD_OAUTH_CLIENT_SECRET }}
-      TF_VAR_discord_snapshot_webhook: ${{ secrets.DISCORD_SNAPSHOT_WEBHOOK }}
-      TF_VAR_discord_bot_token: ${{ secrets.DISCORD_BOT_TOKEN }}
-    defaults:
-      run:
-        working-directory: infra/${{ matrix.root }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
-        with:
-          terraform_wrapper: false # keeps plan output clean for the summary
-      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
-        with:
-          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
-          service_account: ${{ vars.DEPLOYER_SA }}
-      - run: terraform init -input=false -backend-config="backends/${TF_ENV}.hcl"
-      - name: Plan
-        env:
-          REF: ${{ inputs.ref || github.ref_name }}
-          ROOT: ${{ matrix.root }}
-        run: |
-          terraform plan -input=false -no-color -var-file="${TF_ENV}.tfvars" -out=tfplan
-          {
-            echo "## Terraform ${MODE}: ${ROOT} (${TF_ENV})"
-            echo "Ref \`${REF}\` at \`$(git rev-parse HEAD)\`"
-            echo '```'
-            terraform show -no-color tfplan
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Destroy guard
-        env:
-          ALLOW_DESTROY: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
-          ROOT: ${{ matrix.root }}
-        run: |
-          # Replacements count too: they delete before or after creating.
-          destroyed=$(terraform show -json tfplan \
-            | jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | .address')
-          [ -z "$destroyed" ] && exit 0
-          {
-            echo "### Resources to delete or replace (${ROOT})"
-            echo '```'
-            echo "$destroyed"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$MODE" = apply ] && [ "$ALLOW_DESTROY" != true ]; then
-            echo "::error::Plan deletes resources; rerun with allow_destroy to proceed:"
-            echo "$destroyed"
-            exit 1
-          fi
-          echo "::warning::Plan deletes resources:"
-          echo "$destroyed"
-      - name: Apply
-        if: env.MODE == 'apply'
-        run: terraform apply -input=false -auto-approve tfplan
+  dev-functions:
+    needs: dev-foundation
+    if: ${{ !cancelled() && contains(fromJSON('["dev","both"]'), inputs.environment || 'both') }}
+    uses: ./.github/workflows/terraform-root.yml
+    secrets: inherit
+    with:
+      root: serverless/functions
+      env: dev
+      mode: ${{ inputs.mode || 'apply' }}
+      allow_destroy: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
+      ref: ${{ inputs.ref || '' }}
+      adopt: true
+
+  dev-frontend:
+    needs: dev-functions
+    if: ${{ !cancelled() && contains(fromJSON('["dev","both"]'), inputs.environment || 'both') }}
+    uses: ./.github/workflows/terraform-root.yml
+    secrets: inherit
+    with:
+      root: frontend
+      env: dev
+      mode: ${{ inputs.mode || 'apply' }}
+      allow_destroy: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
+      ref: ${{ inputs.ref || '' }}
+      deploy_frontend: true
+
+  prod-foundation:
+    needs: dev-frontend
+    if: ${{ !cancelled() && contains(fromJSON('["prod","both"]'), inputs.environment || 'both') }}
+    uses: ./.github/workflows/terraform-root.yml
+    secrets: inherit
+    with:
+      root: foundation
+      env: prod
+      mode: ${{ inputs.mode || 'apply' }}
+      allow_destroy: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
+      ref: ${{ inputs.ref || '' }}
+
+  prod-functions:
+    needs: prod-foundation
+    if: ${{ !cancelled() && contains(fromJSON('["prod","both"]'), inputs.environment || 'both') }}
+    uses: ./.github/workflows/terraform-root.yml
+    secrets: inherit
+    with:
+      root: serverless/functions
+      env: prod
+      mode: ${{ inputs.mode || 'apply' }}
+      allow_destroy: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
+      ref: ${{ inputs.ref || '' }}
+      adopt: true
+
+  prod-frontend:
+    needs: prod-functions
+    if: ${{ !cancelled() && contains(fromJSON('["prod","both"]'), inputs.environment || 'both') }}
+    uses: ./.github/workflows/terraform-root.yml
+    secrets: inherit
+    with:
+      root: frontend
+      env: prod
+      mode: ${{ inputs.mode || 'apply' }}
+      allow_destroy: ${{ inputs.allow_destroy || false }} # tag pushes never destroy
+      ref: ${{ inputs.ref || '' }}
+      deploy_frontend: true

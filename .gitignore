@@ -59,3 +59,7 @@ google-cloud-cli-linux-x86_64.tar.gz
 tmp/
 *.tfstate*
 plan
+
+# --- terraform saved plans ----------------------------------------
+*tfplan
+*.log

@@ -55,8 +55,12 @@ resource "google_storage_bucket" "source" {
   depends_on = [google_project_service.api]
 }
 
+locals {
+  secret_ids = toset(["discord-public-key", "discord-oauth-client-secret", "discord-snapshot-webhook", "discord-bot-token"])
+}
+
 resource "google_secret_manager_secret" "secret" {
-  for_each  = toset(["discord-public-key", "discord-oauth-client-secret", "discord-snapshot-webhook", "discord-bot-token"])
+  for_each  = local.secret_ids
   secret_id = each.key
 
   replication {
@@ -68,10 +72,15 @@ resource "google_secret_manager_secret" "secret" {
 
 # Write-only: Terraform sends the value to Secret Manager but never keeps it in the plan or state.
 resource "google_secret_manager_secret_version" "secret" {
-  for_each               = google_secret_manager_secret.secret
-  secret                 = each.value.id
+  for_each               = local.secret_ids # static keys: for_each over the resource map is unknown at plan time
+  secret                 = google_secret_manager_secret.secret[each.key].id
   secret_data_wo         = local.secret_values[each.key]
   secret_data_wo_version = var.secrets_version
+}
+
+data "google_firebase_web_app_config" "site" {
+  provider   = google-beta
+  web_app_id = google_firebase_web_app.site.app_id
 }
 
 resource "google_firebase_web_app" "site" {

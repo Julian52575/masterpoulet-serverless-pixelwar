@@ -43,7 +43,7 @@ CATALOG = {
     ],
     "functions": [
         Item("DISCORD_CLIENT_ID", False, True, "Discord application id"),
-        Item("APP_URL", False, True, "website URL (https://... or http://localhost)"),
+        Item("APP_URL", False, True, "optional: custom website URL (default https://<project>.web.app)"),
         Item("DISCORD_PUBLIC_KEY", True, True, "Discord application public key"),
         Item("DISCORD_OAUTH_CLIENT_SECRET", True, True, "Discord OAuth client secret"),
         Item("DISCORD_SNAPSHOT_WEBHOOK", True, True, "webhook URL that receives snapshots"),

@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Plan and apply Terraform roots for an environment, like the CI deploy does.
+
+Usage: ./apply <folder> <env> [--yes] [--allow-destroy] [--destroy]
+       ./apply --all <env> [--yes] [--allow-destroy] [--destroy]
+  e.g. ./apply serverless/functions dev
+
+--destroy tears the roots down instead (in reverse order under --all).
+
+--all applies, in order: bootstrap, foundation, frontend, gke, runners, serverless.
+The frontend upload (build + Firebase Hosting) needs the serverless outputs, so under
+--all it runs after serverless; on its own it runs right after the frontend apply.
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+FRONTEND_APP = HERE.parent / "app" / "frontend"
+FUNCTIONS = "serverless/functions"
+ALL_ORDER = ["bootstrap", "foundation", "frontend", "gke", "runners", FUNCTIONS]
+
+
+def run(cmd, cwd, env=None, capture=False):
+    print(f"+ {' '.join(cmd)}", flush=True)
+    r = subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=capture)
+    if r.returncode:
+        sys.exit(r.returncode)
+    return r.stdout if capture else None
+
+
+def tfvar(var_file, name):
+    m = re.search(rf'^{name}\s*=\s*"(.*)"', var_file.read_text(), re.M)
+    if not m:
+        sys.exit(f"error: {name} not found in {var_file.relative_to(HERE)}")
+    return m.group(1)
+
+
+def init_root(folder, env_name):
+    root = (HERE / folder).resolve()
+    var_file = root / f"{env_name}.tfvars"
+    if not root.is_dir():
+        sys.exit(f"error: no such folder: {root}")
+    if not var_file.is_file():
+        sys.exit(f"error: missing {var_file.relative_to(HERE)}")
+
+    # bootstrap keeps local state, so it has no backends/ folder
+    init = ["terraform", "init", "-input=false"]
+    if (root / "backends").is_dir():
+        backend = root / "backends" / f"{env_name}.hcl"
+        if not backend.is_file():
+            sys.exit(f"error: missing {backend.relative_to(HERE)}")
+        init.append(f"-backend-config=backends/{env_name}.hcl")
+
+    env = {**os.environ, "TF_ENV": env_name}
+    print(f"\n=== {folder} ({env_name}) ===", flush=True)
+    run(init, root, env)
+    return root, env
+
+
+def destroy_root(folder, env_name, yes):
+    root, env = init_root(folder, env_name)
+    if not yes and input(f"DESTROY {folder} in {env_name}? [y/N] ").strip().lower() != "y":
+        sys.exit("aborted")
+    run(["terraform", "destroy", "-input=false", "-auto-approve", f"-var-file={env_name}.tfvars"], root, env)
+
+
+def apply_root(folder, env_name, yes, allow_destroy):
+    root, env = init_root(folder, env_name)
+
+    if (root / "adopt.sh").is_file():
+        run(["./adopt.sh"], root, env)
+
+    run(["terraform", "plan", "-input=false", f"-var-file={env_name}.tfvars", "-out=tfplan"], root, env)
+
+    plan = json.loads(run(["terraform", "show", "-json", "tfplan"], root, env, capture=True))
+    destroyed = [c["address"] for c in plan.get("resource_changes", []) if "delete" in c["change"]["actions"]]
+    if destroyed and not allow_destroy:
+        sys.exit("error: plan deletes or replaces resources (rerun with --allow-destroy):\n  " + "\n  ".join(destroyed))
+
+    if not yes and input(f"Apply {folder} to {env_name}? [y/N] ").strip().lower() != "y":
+        sys.exit("aborted")
+    run(["terraform", "apply", "-input=false", "tfplan"], root, env)
+
+
+def deploy_frontend(env_name):
+    functions = HERE / FUNCTIONS
+    print(f"\n=== frontend upload ({env_name}) ===", flush=True)
+    run(["terraform", "init", "-input=false", f"-backend-config=backends/{env_name}.hcl"], functions)
+
+    def out(name):
+        return run(["terraform", "output", "-raw", name], functions, capture=True).strip()
+
+    project = tfvar(HERE / "frontend" / f"{env_name}.tfvars", "project_id")
+    env = {
+        **os.environ,
+        "VITE_API_BASE": out("api_base_url"),
+        "VITE_FIREBASE_API_KEY": out("firebase_web_api_key"),
+        "VITE_FIREBASE_APP_ID": out("firebase_web_app_id"),
+        "VITE_FIREBASE_PROJECT_ID": project,
+    }
+    run(["npm", "ci"], FRONTEND_APP, env)
+    run(["npm", "run", "build"], FRONTEND_APP, env)
+    run(["npx", "--yes", "firebase-tools@14", "deploy", "--only", "hosting", "--project", project], FRONTEND_APP, env)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    p.add_argument("args", nargs="+", metavar="folder env", help="<folder> <env>, or just <env> with --all")
+    p.add_argument("--all", action="store_true", help="apply every root in dependency order")
+    p.add_argument("--yes", action="store_true", help="apply without asking")
+    p.add_argument("--destroy", action="store_true", help="terraform destroy the roots instead of applying")
+    p.add_argument("--allow-destroy", action="store_true", help="apply even if a plan deletes resources")
+    a = p.parse_args()
+
+    if a.all:
+        if len(a.args) != 1:
+            p.error("with --all, pass only <env>")
+        env_name, folders = a.args[0], ALL_ORDER
+    else:
+        if len(a.args) != 2:
+            p.error("expected <folder> <env>")
+        folders, env_name = [a.args[0].strip("/")], a.args[1]
+
+    if a.destroy:
+        for folder in reversed(folders):
+            destroy_root(folder, env_name, a.yes)
+        return
+
+    for folder in folders:
+        apply_root(folder, env_name, a.yes, a.allow_destroy)
+        # under --all the upload waits for serverless, whose outputs it needs
+        if folder == "frontend" and not a.all:
+            deploy_frontend(env_name)
+    if a.all:
+        deploy_frontend(env_name)
+
+
+if __name__ == "__main__":
+    main()

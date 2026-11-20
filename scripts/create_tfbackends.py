@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STACKS = {
     "foundation": ROOT / "infra" / "foundation",
     "functions": ROOT / "infra" / "serverless" / "functions",
+    "frontend": ROOT / "infra" / "frontend",
 }
 ENV_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$")

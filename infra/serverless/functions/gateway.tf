@@ -1,4 +1,6 @@
 locals {
+  app_url = var.app_url != "" ? var.app_url : "https://${var.project_id}.web.app"
+
   # Cloud Run URLs are predictable, so the gateway need not read them from the functions
   # (web-auth reads the gateway host: referencing the functions here would be a cycle).
   fn_url = {
@@ -18,8 +20,23 @@ locals {
     swagger = "2.0"
     info    = { title = "pixelwar", version = "1.0.0" }
     schemes = ["https"]
+    # Bearer-token API (no cookies cross origin), so any origin is acceptable.
+    "x-google-endpoints" = [{
+      name      = google_api_gateway_api.api.managed_service
+      allowCors = true
+    }]
     paths = {
       for path, r in local.routes : path => {
+        # ESPv2 answers the CORS preflight itself, but only for paths that declare OPTIONS.
+        options = {
+          operationId = "options_${replace(trimprefix(path, "/"), "/[^a-zA-Z0-9]/", "_")}"
+          responses   = { "200" = { description = "preflight" } }
+          "x-google-backend" = {
+            address          = local.fn_url[r.fn]
+            jwt_audience     = local.fn_url[r.fn]
+            path_translation = "APPEND_PATH_TO_ADDRESS"
+          }
+        }
         (r.method) = {
           operationId = replace(trimprefix("${r.method}${path}", "/"), "/[^a-zA-Z0-9]/", "_")
           responses   = { "200" = { description = "ok" } }

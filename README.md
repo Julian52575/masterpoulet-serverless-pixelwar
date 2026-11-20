@@ -1,6 +1,6 @@
 # serverless-pixelwar
 
-A shared pixel canvas drawn from Discord slash commands and a website. The backend is serverless on Google Cloud (Cloud Functions, Pub/Sub, Firestore, API Gateway), described in [`app/functions/INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md) and deployed with the Terraform in [`infra/`](infra/).
+A shared pixel canvas drawn from Discord slash commands and a website. The backend is serverless on Google Cloud (Cloud Functions, Pub/Sub, Firestore, API Gateway), described in [`app/functions/INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md) and deployed with the Terraform in [`infra/`](infra/). The full component and message-flow diagram is in [`docs/architecture.mmd`](docs/architecture.mmd) (Mermaid).
 
 1. [Quick start](#1-quick-start): create the Discord bot and the Google Cloud project, then deploy with the Terraform here.
 2. [Developer experience](#2-developer-experience): local stack, tooling, CI/CD.
@@ -132,16 +132,46 @@ Use the `gateway_host` output:
    DISCORD_GUILD_ID=<server id> node register-commands.js
    ```
 
-## 1.8 Check it works
+## 1.8 Deploy the frontend
+
+The website is a static build served by Firebase Hosting at `https://<project-id>.web.app`. It calls the backend through the API Gateway from [step 1.6](#16-deploy).
+
+1. Enable Hosting once (a Terraform root with only the API; it replaces the former bucket and load balancer):
+
+   ```bash
+   cd infra/frontend
+   terraform init -reconfigure -backend-config=backends/myenv.hcl
+   terraform apply -var-file=myenv.tfvars
+   terraform output hosting_url
+   ```
+
+2. `web-auth` redirects back to `https://<project-id>.web.app` by default (`app_url` in `myenv.tfvars` overrides it for a custom domain). Nothing to do unless you change it.
+3. Build and publish. All values are outputs of step 1.6 (the web `apiKey` is not a secret).
+
+   ```bash
+   cd app/frontend && npm ci
+   F=../../infra/serverless/functions
+   VITE_API_BASE=$(terraform -chdir=$F output -raw api_base_url) \
+   VITE_FIREBASE_API_KEY=$(terraform -chdir=$F output -raw firebase_web_api_key) \
+   VITE_FIREBASE_APP_ID=$(terraform -chdir=$F output -raw firebase_web_app_id) \
+   VITE_FIREBASE_PROJECT_ID=<project-id> \
+   npm run build
+   npx firebase-tools deploy --only hosting --project <project-id>
+   ```
+
+Never set `VITE_BYPASS_DISCORD` in a deployed build. From GitHub, the `Terraform Deploy` workflow does step 3 after the `frontend` leg (variables in [step 1.10](#110-deploy-from-github-optional) and [`infra/frontend/README.md`](infra/frontend/README.md)).
+
+## 1.9 Check it works
 
 In your server, try `/draw 10 10 red` and `/get`. The full checklist is in section 12 of [`INFRASTRUCTURE.md`](app/functions/INFRASTRUCTURE.md).
 
-## 1.9 Deploy from GitHub (optional)
+## 1.10 Deploy from GitHub (optional)
 
 The `Terraform Deploy` workflow (`.github/workflows/terraform-deploy.yml`) deploys the `dev` and `prod` environments. It needs, per GitHub environment:
 
 - Workload Identity Federation from GitHub to a deployer service account in your project. Create it once, by hand, with [`infra/bootstrap`](infra/bootstrap/README.md): it also creates the state bucket and prints the `WIF_PROVIDER` and `DEPLOYER_SA` variables to set.
 - The Discord values above, as GitHub variables and secrets.
+- For the frontend: the deployer service account needs `roles/firebasehosting.admin`; the build values are read from Terraform outputs (`APP_URL` is only for a custom domain).
 - `infra/*/dev.tfvars` and `backends/dev.hcl` (and the `prod` ones) pointing at your own projects and buckets.
 
 `scripts/gh_secrets.py` sets everything one by one and shows what is already set:
@@ -205,27 +235,29 @@ Run `just` to see all available command and their summary.
 ## Services (Docker Compose)
 
 ```
-browser ──► proxy (Traefik :8000) ──► frontend (Vite, :3000)
+browser ──► proxy (Traefik :8000) ──┬──► frontend (Vite, :3000)
+                                    ├──► web-auth (/api/auth)
+                                    └──► web-proxy (/api/pixels, /api/brush) ──► Pub/Sub ──► draw-pixel ──► Firestore
 ```
 
-The API is no longer part of the compose stack: it is the serverless functions in [`app/functions/`](app/functions/INFRASTRUCTURE.md), deployed by `infra/serverless/functions`.
+The local Compose stack runs the complete frontend and serverless backend architecture locally:
 
 | Service | Role | Link to others |
 |---|---|---|
-| `proxy` | Traefik reverse proxy; dashboard on `:8080` (dev only, no auth) | Reads `traefik.*` labels from the other containers via the Podman/Docker socket and routes to them |
-| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority) |
+| `proxy` | Traefik reverse proxy; dashboard on `:8080` (dev only, no auth) | Routes `/` to frontend, `/api/auth` to web-auth, `/api` to web-proxy |
+| `frontend` | React page served by the Vite dev server (hot reload) | Catch-all route `/` (lowest priority), connects to Firestore emulator on `:8088` |
+| `web-proxy` | Serverless proxy for web draws (Functions Framework) | Authenticates tokens, checks rate limits in Firestore, publishes to Pub/Sub |
+| `web-auth` | Serverless OAuth handler (Functions Framework) | Redirects to Discord OAuth and delivers token via URL fragment |
+| `draw-pixel` | Serverless draw worker (Functions Framework) | Receives Pub/Sub push messages and commits pixel transactions to Firestore |
+| `firestore` | Local Firestore emulator (Google Cloud SDK) | Provides live Firestore listeners and document storage on `:8088` |
+| `pubsub` | Local Pub/Sub emulator (Google Cloud SDK) | Delivers messages from `draw-pixel` topic to the `draw-pixel` worker |
+| `pubsub-init` | Init helper | Creates `draw-pixel` topic and push subscription on startup |
 
 ## Configuration (`.env`)
 
-Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .env` (the Nix dev shell does this for you if it is missing). `just` and `docker compose` both read it automatically.
+Settings live in `.env`, which is git-ignored. Create it with `cp .env.example .env` (the Nix dev shell does this for you if it is missing). `just` and `docker compose` both read it automatically. See [3. Environment variables](#3-environment-variables) for every variable.
 
-| Variable | Used by | Purpose |
-|---|---|---|
-| `PROXY_PORT`, `PROXY_DASHBOARD_PORT` | `proxy` | Host ports for the app (default `8000`) and the Traefik dashboard (`8080`) |
-| `PODMAN_STORAGE_DIR` (optional) | Nix dev shell | Where rootless Podman stores images and containers |
-| `PODMAN_NO_SOCKET` (optional) | Nix dev shell | Set to `1` to skip starting the Podman API socket (CI, headless) |
-
-Change the example passwords before exposing the stack anywhere. To add a variable, put it in `.env.example` with a safe placeholder and pass it to the service in `docker-compose.yml`.
+To add a variable, put it in `.env.example` with a safe placeholder and pass it to the service in `docker-compose.yml`.
 
 ## CI
 
@@ -239,4 +271,46 @@ Defined in `.github/workflows/`. Runs on PRs, pushes to `main`, and manually.
 
 - `release-please.yml`: on `main`, maintains a Release PR with the next version and changelog (from Conventional Commits). Merging it tags and publishes a GitHub Release.
 - `release-to-ghcr.yml`: when a release is published, builds the `frontend` image and pushes them to GitHub Container Registry (`ghcr.io`).
-- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation` then `infra/serverless/functions` per environment (the GKE runner stacks `infra/gke` and `infra/runners` are deployed by hand, see `infra/README.md`) (see [1.9](#19-deploy-from-github-optional)).
+- `terraform-deploy.yml`: manual or on release tags; plans or applies `infra/foundation`, `infra/serverless/functions` then `infra/frontend` (plus the Hosting deploy) per environment, each through the shared `terraform-root.yml` (lock check, plan summary, destroy guard, apply) (the GKE runner stacks `infra/gke` and `infra/runners` are deployed by hand, see `infra/README.md`) (see [1.10](#110-deploy-from-github-optional)).
+
+# 3. Environment variables
+
+Local variables live in `.env` (copy `.env.example`, see [Configuration](#configuration-env)). Compose passes them to the services; the frontend only sees names starting with `VITE_`.
+
+## 3.1 Local stack (`.env`)
+
+| Variable | Default | Used by | Purpose |
+|---|---|---|---|
+| `PROXY_PORT` | `3000` | `proxy` | Host port for the app. Must match the port in `APP_URL` and `OAUTH_REDIRECT_URI` |
+| `PROXY_DASHBOARD_PORT` | `8080` | `proxy` | Host port for the Traefik dashboard |
+| `DOCKER_SOCK` | Docker's socket | `proxy` | Container engine socket for Traefik discovery (rootless Podman: `/run/user/<uid>/podman/podman.sock`) |
+| `FIRESTORE_PORT` | `8088` | `firestore`, `frontend` | Host port for the Firestore emulator |
+| `PUBSUB_PORT` | `8085` | `pubsub` | Host port for the Pub/Sub emulator |
+| `DISCORD_CLIENT_ID` | example app id | `web-auth` | Discord OAuth application id |
+| `DISCORD_CLIENT_SECRET` | `local_secret` | `web-auth` | Discord OAuth secret |
+| `APP_URL` | `http://localhost:3000/` | `web-auth` | Where the user is sent after login |
+| `OAUTH_REDIRECT_URI` | `http://localhost:3000/api/auth/callback` | `web-auth` | OAuth callback; must be registered in the Discord portal |
+| `BYPASS_DISCORD` | `true` in `.env.example` | `web-proxy`, `frontend` | **Dev only.** Lets the frontend draw without a Discord login. Requests without a token are accepted as `anonymous` with a fresh user id per draw (so no per-user rate limit); a token, if sent, is still validated. The frontend reads it as `VITE_BYPASS_DISCORD`. Never enable it in a deployed environment |
+| `PODMAN_STORAGE_DIR` | | Nix dev shell | Where rootless Podman keeps images and containers |
+| `PODMAN_NO_SOCKET` | | Nix dev shell | Set to `1` to skip starting the Podman API socket |
+
+## 3.2 Frontend (`VITE_*`)
+
+| Variable | Purpose |
+|---|---|
+| `VITE_FIRESTORE_EMULATOR_HOST` | `host:port` of the Firestore emulator; unset in production |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Firebase web config (local placeholders by default) |
+| `VITE_BACKEND_URL` | Target of the `/api` proxy for a standalone `npm run dev` |
+| `VITE_BYPASS_DISCORD` | `true` skips the client-side login check (set from `BYPASS_DISCORD`) |
+
+## 3.3 Functions and Terraform
+
+Functions get their settings from Terraform in deployed environments (for example `DRAW_TOPIC`, `SNAPSHOT_BUCKET`, `ADMIN_USER_IDS`). Terraform reads the `TF_VAR_*` variables below, which CI takes from the GitHub environment variables and secrets.
+
+| Variable | Purpose |
+|---|---|
+| `TF_VAR_discord_client_id`, `TF_VAR_app_url` | Discord application id and public site URL (`https://<site host>/`) |
+| `TF_VAR_discord_public_key` | Discord interactions public key |
+| `TF_VAR_discord_oauth_client_secret` | Discord OAuth secret |
+| `TF_VAR_discord_snapshot_webhook` | Webhook that receives canvas snapshots |
+| `TF_VAR_discord_bot_token` | Discord bot token |

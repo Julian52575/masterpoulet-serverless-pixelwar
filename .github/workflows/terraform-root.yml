@@ -1,0 +1,171 @@
+# Reusable: deploys one Terraform root to one environment. Called by terraform-deploy.yml.
+name: Terraform Root
+on:
+  workflow_call:
+    inputs:
+      root:
+        description: "Path under infra/ (foundation, serverless/functions, frontend)"
+        type: string
+        required: true
+      env:
+        description: "Environment (dev or prod): GitHub environment, backend and tfvars"
+        type: string
+        required: true
+      mode:
+        description: "plan or apply"
+        type: string
+        required: true
+      allow_destroy:
+        description: "Allow apply to delete or replace resources"
+        type: boolean
+        default: false
+      ref:
+        description: "Tag, branch or commit SHA to check out (empty: the caller's ref)"
+        type: string
+        default: ""
+      adopt:
+        description: "Run ./adopt.sh before planning to import resources that already exist"
+        type: boolean
+        default: false
+      redact_outputs_matching:
+        description: "Case-insensitive regex; outputs whose name matches have their value replaced by <redacted> in plan and apply logs (empty: redact nothing)"
+        type: string
+        default: "key|secret|token|password|passwd|credential|private|webhook|cert"
+      deploy_frontend:
+        description: "After apply, build and deploy the web app to Firebase Hosting"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    name: deploy (${{ inputs.root }}, ${{ inputs.env }})
+    permissions:
+      contents: read
+      id-token: write # workload identity federation
+    environment: ${{ inputs.env }} # add required reviewers on prd
+    env:
+      MODE: ${{ inputs.mode }}
+      REDACT_PATTERN: ${{ inputs.redact_outputs_matching }}
+      TF_ENV: ${{ inputs.env }}
+      # Terraform ignores TF_VAR_* a root does not declare.
+      TF_VAR_discord_client_id: ${{ vars.DISCORD_CLIENT_ID }}
+      TF_VAR_app_url: ${{ vars.APP_URL }}
+      TF_VAR_discord_public_key: ${{ secrets.DISCORD_PUBLIC_KEY }}
+      TF_VAR_discord_oauth_client_secret: ${{ secrets.DISCORD_OAUTH_CLIENT_SECRET }}
+      TF_VAR_discord_snapshot_webhook: ${{ secrets.DISCORD_SNAPSHOT_WEBHOOK }}
+      TF_VAR_discord_bot_token: ${{ secrets.DISCORD_BOT_TOKEN }}
+    defaults:
+      run:
+        working-directory: infra/${{ inputs.root }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false # keeps plan output clean for the summary
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SA }}
+      - run: terraform init -input=false -backend-config="backends/${TF_ENV}.hcl"
+      - name: Fail on state lock
+        run: |
+          # The GCS backend holds its lock as <prefix>/default.tflock; fail fast rather than let plan/import hit it.
+          bucket=$(sed -n 's/^bucket *= *"\(.*\)"/\1/p' "backends/${TF_ENV}.hcl")
+          prefix=$(sed -n 's/^prefix *= *"\(.*\)"/\1/p' "backends/${TF_ENV}.hcl")
+          if gcloud storage ls "gs://${bucket}/${prefix}/default.tflock" >/dev/null 2>&1; then
+            echo "::error::Terraform state is locked (gs://${bucket}/${prefix}/default.tflock); wait for the other run or force-unlock"
+            gcloud storage cat "gs://${bucket}/${prefix}/default.tflock" || true
+            exit 1
+          fi
+      - name: Prepare output redaction
+        working-directory: ${{ runner.temp }}
+        run: |
+          # Defense in depth for outputs that are not marked sensitive: Terraform prints them in clear text.
+          cat > redact.sh <<'SH'
+          #!/usr/bin/env bash
+          # Filter: in an "Outputs:" / "Changes to Outputs:" block, replaces the value of outputs named like $REDACT_PATTERN.
+          [ -z "${REDACT_PATTERN:-}" ] && exec cat
+          exec awk -v pat="$REDACT_PATTERN" '
+            /^(Changes to )?Outputs:/ { inout = 1; print; next }
+            !inout { print; next }
+            depth > 0 { depth += gsub(/[{[(]/, "&") - gsub(/[}\])]/, "&"); next }
+            {
+              p = match($0, /[^ +~-]/)
+              if (p == 0) { print; next }
+              rest = substr($0, p); name = rest; sub(/[ =].*/, "", name)
+              eq = index(rest, "= ")
+              if (eq > 0 && tolower(name) ~ tolower(pat)) {
+                val = substr(rest, eq + 2)
+                depth = gsub(/[{[(]/, "&", val) - gsub(/[}\])]/, "&", val)
+                if (depth < 0) depth = 0
+                print substr($0, 1, p - 1) name " = <redacted>"
+              } else print
+            }'
+          SH
+          chmod +x redact.sh
+      - name: Adopt existing resources
+        if: inputs.adopt
+        run: ./adopt.sh
+      - name: Plan
+        env:
+          REF: ${{ inputs.ref || github.ref_name }}
+          ROOT: ${{ inputs.root }}
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color -var-file="${TF_ENV}.tfvars" -out=tfplan | "$RUNNER_TEMP/redact.sh"
+          # tee so the plan also shows in the step log, not only the job summary
+          {
+            echo "## Terraform ${MODE}: ${ROOT} (${TF_ENV})"
+            echo "Ref \`${REF}\` at \`$(git rev-parse HEAD)\`"
+            echo '```'
+            terraform show -no-color tfplan | "$RUNNER_TEMP/redact.sh"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Destroy guard
+        env:
+          ALLOW_DESTROY: ${{ inputs.allow_destroy }}
+          ROOT: ${{ inputs.root }}
+        run: |
+          # Replacements count too: they delete before or after creating.
+          destroyed=$(terraform show -json tfplan \
+            | jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | .address')
+          [ -z "$destroyed" ] && exit 0
+          {
+            echo "### Resources to delete or replace (${ROOT})"
+            echo '```'
+            echo "$destroyed"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MODE" = apply ] && [ "$ALLOW_DESTROY" != true ]; then
+            echo "::error::Plan deletes resources; rerun with allow_destroy to proceed:"
+            echo "$destroyed"
+            exit 1
+          fi
+          echo "::warning::Plan deletes resources:"
+          echo "$destroyed"
+      - name: Apply
+        if: inputs.mode == 'apply'
+        run: |
+          set -o pipefail
+          terraform apply -input=false -no-color -auto-approve tfplan | "$RUNNER_TEMP/redact.sh"
+      - name: Build and deploy frontend
+        if: inputs.mode == 'apply' && inputs.deploy_frontend
+        working-directory: app/frontend
+        run: |
+          # Everything comes from the functions state; the web apiKey is not a secret.
+          terraform -chdir=../../infra/serverless/functions init -input=false -backend-config="backends/${TF_ENV}.hcl" > /dev/null
+          out() { terraform -chdir=../../infra/serverless/functions output -raw "$1"; }
+          VITE_API_BASE=$(out api_base_url)
+          VITE_FIREBASE_API_KEY=$(out firebase_web_api_key)
+          VITE_FIREBASE_APP_ID=$(out firebase_web_app_id)
+          VITE_FIREBASE_PROJECT_ID=$(sed -n 's/^project_id *= *"\(.*\)"/\1/p' "../../infra/frontend/${TF_ENV}.tfvars")
+          export VITE_API_BASE VITE_FIREBASE_API_KEY VITE_FIREBASE_APP_ID VITE_FIREBASE_PROJECT_ID
+          npm ci
+          npm run build
+          npx --yes firebase-tools@14 deploy --only hosting --project "$VITE_FIREBASE_PROJECT_ID"

@@ -101,6 +101,7 @@ n'a pas de `.tf` racine : un plan lancé là ne gère pas les deux stacks.
 | bootstrap | APIs IAM, bucket de state, compte de déploiement et Workload Identity Federation GitHub | Application **manuelle** avec un compte propriétaire du projet ; hors CI. Voir [bootstrap/README.md](bootstrap/README.md). |
 | runners | Contrôleur et scale set ARC des runners GitHub | Cluster GKE existant. |
 | serverless/functions | Cloud Functions du bot Discord et du web | Projet et APIs ; indépendant de foundation, GKE et runners. |
+| frontend | Bucket Cloud Storage pour assets statiques du site web, Cloud CDN et Load Balancer HTTP | Projet et APIs ; indépendant de foundation, GKE et runners. |
 
 `gke` et `runners` ne sont pas déployés par `terraform-deploy.yml` (voir `.github/workflows`). La CI les planifie avec les autres racines : le compte de déploiement doit pouvoir lire leur state et leurs ressources IAM.
 
@@ -135,6 +136,8 @@ chaque stack. Toutes les stacks utilisent `prod` pour PROD (fichiers et préfixe
 | foundation PROD | backends/prod.hcl | masterpoulet_prod_bucket | foundation/prod | foundation/prod/default.tfstate |
 | GKE DEV | backends/dev.hcl | masterpoulet_bucket | gke/dev | gke/dev/default.tfstate |
 | GKE PROD | backends/prod.hcl | masterpoulet_prod_bucket | gke/prod | gke/prod/default.tfstate |
+| frontend DEV | backends/dev.hcl | masterpoulet_bucket | frontend/dev | frontend/dev/default.tfstate |
+| frontend PROD | backends/prod.hcl | masterpoulet_prod_bucket | frontend/prod | frontend/prod/default.tfstate |
 
 Les trois premiers objets ont été trouvés. Aucun objet trouvé à `gke/prod` ne
 prouve pas l'absence de ressources hors Terraform. Les buckets existent, ne sont

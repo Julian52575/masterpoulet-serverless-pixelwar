@@ -8,10 +8,9 @@ terraform plan -var-file=dev.tfvars
 ```
 
 Before the first apply:
-- Set the two environment-specific values as GitHub **variables** on the `dev` and `prod` environments (they are public, not secrets): `DISCORD_CLIENT_ID`, `APP_URL`. CI passes them as `TF_VAR_*`.
+- Set the two environment-specific values as GitHub **variables** on the `dev` and `prod` environments (they are public, not secrets): `DISCORD_CLIENT_ID`, and optionally `APP_URL` (a custom domain; by default `https://<project_id>.web.app`). CI passes them as `TF_VAR_*`.
   ```bash
   gh variable set DISCORD_CLIENT_ID --env dev --body <application id>
-  gh variable set APP_URL --env dev --body https://<site host>/
   ```
   Locally, export the same `TF_VAR_*` names (see `.env.example`).
 - Set the four secret values as GitHub **secrets** on the `dev` and `prod` environments: `DISCORD_PUBLIC_KEY`, `DISCORD_OAUTH_CLIENT_SECRET`, `DISCORD_SNAPSHOT_WEBHOOK`, `DISCORD_BOT_TOKEN`. CI passes them as `TF_VAR_*` and Terraform writes them to Secret Manager as write-only versions, so they never enter the state or the plan. Locally, export the same `TF_VAR_*` names (see `.env.example`).
